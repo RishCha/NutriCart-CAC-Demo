@@ -1,0 +1,958 @@
+"""Local web interface for NutriCart services."""
+
+from datetime import datetime, timezone
+import math
+import os
+import secrets
+import sqlite3
+import time
+from functools import wraps
+from pathlib import Path
+from urllib.parse import urlsplit
+
+import requests
+from flask import Flask, jsonify, render_template, request, session
+from flask.sessions import SecureCookieSessionInterface
+
+from basket_comparison import compare_kroger_basket_prices
+from account_store import AccountStore, StoreError
+from password_recovery import queue_reset
+from meal_planner import build_meal_plan
+from nutrition_references import estimate_household
+from plan_feasibility import feasibility_guidance, minimum_feasible_cost, plan_acceptance
+from planning_catalog import GENERAL_CATALOG, location_from_address, planning_candidates, planning_location
+from catalog_config import demo_catalog_enabled
+from optimize_grocery import (
+    FOOD_GROUP_EXCLUSIONS,
+    NUTRITION_FOCUS_NUTRIENTS,
+    default_fiber_target,
+    filter_catalog,
+    load_catalog,
+    parse_avoid_list,
+    score_plan,
+    score_plan_breakdown,
+    solve_plan,
+    summarize_plan,
+)
+from snap_store_locator import find_snap_retailers, geocode_address, reverse_geocode_coordinates
+
+
+
+
+
+class _NutriCartSessionInterface(SecureCookieSessionInterface):
+    """Keep secure cookies in production while allowing loopback HTTP development."""
+
+    def get_cookie_secure(self, application):
+        secure = super().get_cookie_secure(application)
+        hostname = (urlsplit(request.host_url).hostname or "").casefold()
+        if secure and not request.is_secure and hostname in {"localhost", "127.0.0.1", "::1"}:
+            return False
+        return secure
+
+
+app = Flask(__name__)
+app.config.update(
+    # Vercel has no durable local SQLite storage. Keep the public demo guest-only.
+    ACCOUNTS_ENABLED=False,
+    SECRET_KEY=os.getenv("FLASK_SECRET_KEY") or secrets.token_hex(32),
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=os.getenv("FLASK_COOKIE_SECURE", "true" if os.getenv("VERCEL") == "1" else "").lower() in {"1", "true", "yes"},
+    ACCOUNT_DATABASE=os.getenv("NUTRICART_DATABASE") or str(Path(app.instance_path) / "nutricart.db"),
+    PASSWORD_RESET_ORIGIN=os.getenv("NUTRICART_PUBLIC_URL", ""),
+    SMTP_HOST=os.getenv("NUTRICART_SMTP_HOST", ""),
+    SMTP_PORT=os.getenv("NUTRICART_SMTP_PORT", "587"),
+    SMTP_FROM=os.getenv("NUTRICART_SMTP_FROM", ""),
+    SMTP_USERNAME=os.getenv("NUTRICART_SMTP_USERNAME", ""),
+    SMTP_PASSWORD=os.getenv("NUTRICART_SMTP_PASSWORD", ""),
+    SMTP_SSL=os.getenv("NUTRICART_SMTP_SSL", "").lower() in {"1", "true", "yes"},
+)
+app.session_interface = _NutriCartSessionInterface()
+
+
+@app.context_processor
+def inject_template_globals():
+    return {
+        "current_year": datetime.now(timezone.utc).year,
+    }
+
+DIETS = {"omnivore", "vegetarian", "vegan", "pescatarian"}
+PREFERENCES = {"balanced", "budget", "nutrition", "variety"}
+FIBER_MODES = {"recommended", "custom"}
+PUBLIC_GROCERY_FIELDS = {
+    "quantity", "product_name", "product_id", "category", "unit_price",
+    "item_total", "nutrition_is_estimated", "store_name", "package_size",
+    "package_weight_g",
+}
+KROGER_TOKEN_URL = "https://api.kroger.com/v1/connect/oauth2/token"
+_LOGIN_ATTEMPTS = {}
+
+
+def _accounts():
+    return AccountStore(app.config["ACCOUNT_DATABASE"])
+
+
+def _current_account_user():
+    user = None
+    if app.config["ACCOUNTS_ENABLED"] and session.get("user_id"):
+        try:
+            user = _accounts().get_session_user(session.get("user_id"), session.get("auth_version", 0))
+        except (sqlite3.Error, OSError):
+            # A stale account cookie must not prevent access to the guest tools.
+            user = None
+    if not user:
+        session.pop("user_id", None)
+        session.pop("auth_version", None)
+    return user
+
+
+@app.before_request
+def guard_demo_accounts():
+    if app.config["ACCOUNTS_ENABLED"]:
+        return None
+    account_route = request.path == "/api/account" or request.path.startswith("/api/account/")
+    saved_route = request.path == "/api/saved-items" or request.path.startswith("/api/saved-items/")
+    if (account_route or saved_route) and request.path not in {"/api/account/session", "/api/account/logout"}:
+        return jsonify({"error": "Accounts and saved content are unavailable in this public demo. You can use all grocery planning tools without signing in."}), 503
+    return None
+
+
+def _csrf_token():
+    if "csrf_token" not in session:
+        session["csrf_token"] = secrets.token_urlsafe(32)
+    return session["csrf_token"]
+
+
+def _csrf_required(function):
+    @wraps(function)
+    def guarded(*args, **kwargs):
+        supplied = request.headers.get("X-CSRF-Token", "")
+        if not supplied or not secrets.compare_digest(supplied, session.get("csrf_token", "")):
+            return jsonify({"error": "The security token is missing or expired. Refresh and try again."}), 403
+        return function(*args, **kwargs)
+    return guarded
+
+
+def _login_required(function):
+    @wraps(function)
+    def guarded(*args, **kwargs):
+        if not _current_account_user():
+            return jsonify({"error": "Sign in to access saved NutriCart content."}), 401
+        return function(*args, **kwargs)
+    return guarded
+
+
+def _item_id(value):
+    try:
+        identifier = int(value)
+    except (TypeError, ValueError) as error:
+        raise StoreError("Saved item ID is invalid.") from error
+    if identifier <= 0:
+        raise StoreError("Saved item ID is invalid.")
+    return identifier
+
+
+class _PlanningValidationError(ValueError):
+    def __init__(self, message: str, **details):
+        super().__init__(message)
+        self.details = details
+
+
+class _PlanningFeasibilityError(ValueError):
+    def __init__(self, message: str, **details):
+        super().__init__(message)
+        self.details = details
+
+
+PARTIAL_PLAN_MESSAGE = (
+    "We couldn't make a complete plan for this budget. We found some groceries, "
+    "but they may not provide enough food for your household and planning period. "
+    "Try increasing your budget or reducing the number of days."
+)
+NO_PLAN_MESSAGE = (
+    "We couldn't find a complete plan for this budget. Try increasing your budget "
+    "or reducing the number of days."
+)
+CATALOG_LIMIT_MESSAGE = (
+    "We couldn't find a complete plan with the current food options. Try reducing "
+    "the number of people or days, or adjusting excluded foods."
+)
+
+
+class _KrogerAuthenticationError(RuntimeError):
+    """Controlled server-side Kroger authentication failure."""
+
+
+def _get_kroger_access_token() -> str:
+    """Obtain a server-side Kroger token without logging credential data."""
+    client_id = os.getenv("KROGER_CLIENT_ID")
+    client_secret = os.getenv("KROGER_CLIENT_SECRET")
+    if not client_id or not client_secret:
+        raise _KrogerAuthenticationError("Kroger credentials are unavailable.")
+    try:
+        response = requests.post(
+            KROGER_TOKEN_URL,
+            auth=(client_id, client_secret),
+            data={"grant_type": "client_credentials", "scope": "product.compact"},
+            timeout=30,
+        )
+        response.raise_for_status()
+        access_token = response.json().get("access_token")
+    except (requests.RequestException, ValueError, AttributeError) as error:
+        raise _KrogerAuthenticationError("Kroger authentication failed.") from error
+    if not isinstance(access_token, str) or not access_token:
+        raise _KrogerAuthenticationError("Kroger authentication failed.")
+    return access_token
+
+
+def _price_comparison_inputs(payload: dict) -> tuple[list[dict], list[dict], str | None]:
+    """Validate browser-supplied basket comparison inputs."""
+    groceries = payload.get("groceries")
+    if not isinstance(groceries, list) or not groceries:
+        raise ValueError("Groceries must be a non-empty list.")
+    validated_groceries = []
+    for index, grocery in enumerate(groceries, start=1):
+        if not isinstance(grocery, dict):
+            raise ValueError(f"Grocery {index} must be a JSON object.")
+        product_id = grocery.get("product_id")
+        if not isinstance(product_id, str) or not product_id.strip():
+            raise ValueError(f"Grocery {index} product_id must be a nonblank string.")
+        quantity = grocery.get("quantity")
+        if isinstance(quantity, bool) or not isinstance(quantity, int) or quantity <= 0:
+            raise ValueError(f"Grocery {index} quantity must be a positive integer.")
+        validated_groceries.append({"product_id": product_id, "quantity": quantity})
+
+    stores = payload.get("stores")
+    if not isinstance(stores, list) or len(stores) < 2:
+        raise ValueError("At least two stores are required.")
+    validated_stores = []
+    location_ids = set()
+    for index, store in enumerate(stores, start=1):
+        if not isinstance(store, dict):
+            raise ValueError(f"Store {index} must be a JSON object.")
+        location_id = store.get("location_id")
+        store_name = store.get("store_name")
+        if not isinstance(location_id, str) or not location_id.strip():
+            raise ValueError(f"Store {index} location_id must be a nonblank string.")
+        if not isinstance(store_name, str) or not store_name.strip():
+            raise ValueError(f"Store {index} store_name must be a nonblank string.")
+        if location_id in location_ids:
+            raise ValueError("Store location IDs must be unique.")
+        location_ids.add(location_id)
+        validated_stores.append({"location_id": location_id, "store_name": store_name})
+
+    reference = payload.get("reference_location_id")
+    if reference is not None:
+        if not isinstance(reference, str) or not reference.strip():
+            raise ValueError("reference_location_id must be a nonblank string.")
+        if reference not in location_ids:
+            raise ValueError("reference_location_id must identify a supplied store.")
+    return validated_groceries, validated_stores, reference
+
+
+def _meal_plan_inputs(payload: dict) -> dict:
+    """Validate current-plan context and re-enrich product IDs server-side."""
+    groceries = payload.get("groceries")
+    if not isinstance(groceries, list) or not groceries:
+        raise ValueError("Groceries must be a non-empty list.")
+    people = _planner_integer(payload.get("people"), "People", 1, 20)
+    days = _planner_integer(payload.get("days"), "Days", 1, 31)
+    diet = payload.get("diet")
+    if diet not in DIETS:
+        raise ValueError("Diet must be one of: omnivore, vegetarian, vegan, pescatarian.")
+    exclusions = payload.get("food_group_exclusions", [])
+    if not isinstance(exclusions, list) or len(set(exclusions)) != len(exclusions) or any(item not in FOOD_GROUP_EXCLUSIONS for item in exclusions):
+        raise ValueError("Food group exclusions contain an unsupported value.")
+    avoid = payload.get("foods_to_avoid", [])
+    if not isinstance(avoid, list) or any(not isinstance(item, str) for item in avoid):
+        raise ValueError("Foods to avoid must be a list of strings.")
+    focus = payload.get("nutrition_focus", "none")
+    if focus not in {"none", *NUTRITION_FOCUS_NUTRIENTS}:
+        raise ValueError("Nutrition focus contains an unsupported value.")
+    targets = payload.get("targets")
+    if not isinstance(targets, dict):
+        raise ValueError("Nutrition targets must be a JSON object.")
+    validated_targets = {}
+    for field, label, minimum, maximum in (("calories_kcal", "Calories target", 500, 5000), ("protein_g", "Protein target", 10, 300), ("fiber_g", "Fiber target", 5, 100)):
+        validated_targets[field] = _planner_number(targets.get(field), label, minimum, maximum)
+
+    catalog = load_catalog()
+    by_id = {str(item.get("product_id") or item.get("catalog_id")): item for item in catalog}
+    enriched, seen = [], set()
+    for index, grocery in enumerate(groceries, start=1):
+        if not isinstance(grocery, dict):
+            raise ValueError(f"Grocery {index} must be a JSON object.")
+        identifier, quantity = grocery.get("product_id"), grocery.get("quantity")
+        if not isinstance(identifier, str) or not identifier.strip():
+            raise ValueError(f"Grocery {index} product_id must be a nonblank string.")
+        if isinstance(quantity, bool) or not isinstance(quantity, int) or quantity <= 0:
+            raise ValueError(f"Grocery {index} quantity must be a positive integer.")
+        if identifier in seen:
+            raise ValueError("Grocery product IDs must be unique.")
+        if identifier not in by_id:
+            raise ValueError(f"Grocery {index} is not in the NutriCart catalog.")
+        seen.add(identifier)
+        enriched.append({**by_id[identifier], "quantity": quantity})
+    return {"groceries": enriched, "people": people, "days": days, "diet": diet,
+            "food_group_exclusions": exclusions, "foods_to_avoid": parse_avoid_list(",".join(avoid)),
+            "nutrition_focus": focus, "targets": validated_targets}
+
+
+def _number(payload: dict, field: str, label: str, minimum: float, maximum: float | None = None) -> float:
+    value = payload.get(field)
+    if isinstance(value, bool):
+        raise ValueError(f"{label} must be a number.")
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{label} must be a number.") from error
+    if not math.isfinite(number) or number < minimum or (maximum is not None and number > maximum):
+        if maximum is None:
+            raise ValueError(f"{label} must be greater than zero.")
+        raise ValueError(f"{label} must be between {minimum:g} and {maximum:g}.")
+    return number
+
+
+def _json_object() -> dict:
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        raise ValueError("Request body must be a JSON object.")
+    return payload
+
+
+def _planner_number(value, label: str, minimum: float, maximum: float | None = None) -> float:
+    if isinstance(value, bool):
+        raise _PlanningValidationError(f"{label} must be a number.")
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as error:
+        raise _PlanningValidationError(f"{label} must be a number.") from error
+    if not math.isfinite(number):
+        raise _PlanningValidationError(f"{label} must be a finite number.")
+    if number < minimum:
+        raise _PlanningValidationError(f"{label} must be at least {minimum:g}.")
+    if maximum is not None and number > maximum:
+        raise _PlanningValidationError(f"{label} must be at most {maximum:g}.")
+    return number
+
+
+def _planner_integer(value, label: str, minimum: int, maximum: int) -> int:
+    number = _planner_number(value, label, minimum, maximum)
+    if not number.is_integer():
+        raise _PlanningValidationError(f"{label} must be a whole number.")
+    return int(number)
+
+
+def _planning_values(payload: dict, require_exclusions: bool = False) -> tuple[dict, set[str] | None, list[set[str]]]:
+    try:
+        location = planning_location(payload.get("location"))
+    except ValueError as error:
+        raise _PlanningValidationError(str(error)) from error
+    budget = _planner_number(payload.get("budget"), "Budget", 10)
+    people = _planner_integer(payload.get("people"), "People", 1, 20)
+    days = _planner_integer(payload.get("days"), "Days", 1, 31)
+
+    calories_value = payload.get("calories")
+    if not isinstance(calories_value, bool):
+        try:
+            numeric_calories = float(calories_value)
+        except (TypeError, ValueError):
+            pass
+        else:
+            if math.isfinite(numeric_calories) and numeric_calories == 180:
+                raise _PlanningValidationError(
+                    "Daily calories must be at least 500.", suggested_calories=1800
+                )
+    calories = _planner_number(calories_value, "Daily calories", 500, 5000)
+    protein = _planner_number(payload.get("protein"), "Daily protein", 10, 300)
+
+    diet = payload.get("diet")
+    if diet not in DIETS:
+        raise _PlanningValidationError("Diet must be one of: omnivore, vegetarian, vegan, pescatarian.")
+    preference = payload.get("preference")
+    if preference not in PREFERENCES:
+        raise _PlanningValidationError("Preference must be one of: balanced, budget, nutrition, variety.")
+    food_group_exclusions = payload.get("food_group_exclusions", [])
+    if (
+        not isinstance(food_group_exclusions, list)
+        or any(not isinstance(item, str) for item in food_group_exclusions)
+        or any(item not in FOOD_GROUP_EXCLUSIONS for item in food_group_exclusions)
+    ):
+        raise _PlanningValidationError("Food group exclusions contain an unsupported value.")
+    if len(set(food_group_exclusions)) != len(food_group_exclusions):
+        raise _PlanningValidationError("Food group exclusions must be unique.")
+    nutrition_focus = payload.get("nutrition_focus", "none")
+    supported_focus = {"none", *NUTRITION_FOCUS_NUTRIENTS}
+    if nutrition_focus not in supported_focus:
+        raise _PlanningValidationError("Nutrition focus contains an unsupported value.")
+    fiber_mode = payload.get("fiber_mode")
+    if fiber_mode not in FIBER_MODES:
+        raise _PlanningValidationError("Fiber mode must be recommended or custom.")
+
+    foods = payload.get("foods_to_avoid")
+    if not isinstance(foods, list) or any(not isinstance(item, str) for item in foods):
+        raise _PlanningValidationError("Foods to avoid must be a list of strings.")
+    avoid = parse_avoid_list(",".join(foods))
+    fiber = (
+        default_fiber_target(calories)
+        if fiber_mode == "recommended"
+        else _planner_number(payload.get("fiber_custom"), "Custom fiber", 5, 100)
+    )
+
+    excluded_ids = None
+    prior_product_id_sets = []
+    if require_exclusions:
+        exclusions = payload.get("excluded_product_ids")
+        if not isinstance(exclusions, list) or any(not isinstance(item, str) for item in exclusions):
+            raise _PlanningValidationError("Excluded product IDs must be a list of strings.")
+        excluded_ids = set(exclusions)
+        prior_sets = payload.get("previous_product_id_sets", [])
+        if (
+            not isinstance(prior_sets, list) or len(prior_sets) > 6
+            or any(not isinstance(item, list) or len(item) > 20 for item in prior_sets)
+            or any(not isinstance(identifier, str) for item in prior_sets for identifier in item)
+        ):
+            raise _PlanningValidationError("Previous product ID sets are invalid.")
+        prior_product_id_sets = [set(item) for item in prior_sets]
+
+    return {
+        "budget": budget, "people": people, "days": days, "diet": diet,
+        "preference": preference, "avoid": avoid, "calories": calories,
+        "protein": protein, "fiber": fiber, "fiber_source": fiber_mode,
+        "food_group_exclusions": list(food_group_exclusions),
+        "nutrition_focus": nutrition_focus,
+        "location": location,
+    }, excluded_ids, prior_product_id_sets
+
+
+def _feasibility_values(payload: dict) -> dict | None:
+    """Validate partial guidance inputs using the planner's existing contracts."""
+
+    diet = payload.get("diet")
+    if diet in (None, ""):
+        return None
+    if diet not in DIETS:
+        raise _PlanningValidationError("Diet must be one of: omnivore, vegetarian, vegan, pescatarian.")
+    raw = {key: payload.get(key) for key in ("budget", "people", "days")}
+    normalized = {
+        **payload,
+        "budget": raw["budget"] if raw["budget"] not in (None, "") else 10,
+        "people": raw["people"] if raw["people"] not in (None, "") else 1,
+        "days": raw["days"] if raw["days"] not in (None, "") else 1,
+        "preference": payload.get("preference") or "balanced",
+        "foods_to_avoid": payload.get("foods_to_avoid") or [],
+        "calories": payload.get("calories") if payload.get("calories") not in (None, "") else 2000,
+        "protein": payload.get("protein") if payload.get("protein") not in (None, "") else 50,
+        "fiber_mode": "custom" if payload.get("fiber_custom") not in (None, "") else "recommended",
+    }
+    values, _excluded, _history = _planning_values(normalized)
+    values.update({
+        "budget": None if raw["budget"] in (None, "") else values["budget"],
+        "people": None if raw["people"] in (None, "") else values["people"],
+        "days": None if raw["days"] in (None, "") else values["days"],
+        "nutrition_basis": payload.get("nutrition_basis") if payload.get("nutrition_basis") in {"general", "manual", "household"} else "general",
+    })
+    return values
+
+
+def _public_plan_response(values: dict, catalog: list[dict], eligible: list[dict], plan: dict) -> dict:
+    summary = summarize_plan(plan, values)
+    groceries = []
+    for product in plan.get("groceries", []):
+        public_product = {
+            "quantity": product.get("quantity"),
+            "product_name": product.get("product_name"),
+            "product_id": product.get("product_id") or product.get("catalog_id"),
+            "category": product.get("food_category"),
+            "unit_price": product.get("unit_price"),
+            "item_total": product.get("total_cost"),
+            "nutrition_is_estimated": bool(product.get("nutrition_is_estimated", True)),
+            "store_name": None,
+            "package_size": product.get("package_size"),
+            "package_weight_g": product.get("package_weight_g"),
+        }
+        groceries.append({key: public_product[key] for key in PUBLIC_GROCERY_FIELDS})
+    quality = score_plan(summary, plan["targets"], plan.get("groceries", []))
+    quality_explanation = score_plan_breakdown(
+        summary, plan["targets"], plan.get("groceries", [])
+    )
+    acceptance = plan_acceptance(plan, summary, quality)
+    return {
+        "solver_status": plan.get("status", "Unknown"),
+        "groceries": groceries,
+        "total_cost": summary["total_cost"],
+        "remaining_budget": round(values["budget"] - summary["total_cost"], 2),
+        "nutrition_per_person_per_day": summary["nutrition_per_person_per_day"],
+        "nutrition_targets": plan["targets"],
+        "quality_score": quality,
+        "quality_score_explanation": quality_explanation,
+        "acceptance": acceptance,
+        "feasibility_status": acceptance["status"],
+        "planning_settings": {
+            "diet": values["diet"],
+            "preference": values["preference"],
+            "nutrition_focus": values.get("nutrition_focus", "none"),
+            "food_group_exclusions": values.get("food_group_exclusions", []),
+        },
+        "planning_context": {
+            "location": values.get("location"),
+            "catalog_scope": dict(GENERAL_CATALOG),
+            "budget": values["budget"], "people": values["people"], "days": values["days"],
+            "diet": values["diet"], "preference": values["preference"],
+            "food_group_exclusions": values.get("food_group_exclusions", []),
+            "foods_to_avoid": values.get("avoid", []),
+            "nutrition_focus": values.get("nutrition_focus", "none"),
+            "calories": values["calories"], "protein": values["protein"],
+            "fiber_mode": values.get("fiber_source", "recommended"),
+            "fiber_custom": values["fiber"] if values.get("fiber_source") == "custom" else None,
+        },
+        "estimated_nutrition_count": sum(item["nutrition_is_estimated"] for item in groceries),
+        "eligible_product_count": len(eligible),
+        "filtered_product_count": len(catalog) - len(eligible),
+        **({
+            "alternative_difference_count": plan.get("alternative_difference_count", 0),
+            "alternative_requested_changes": plan.get("alternative_requested_changes", 0),
+            "alternative_required_changes": plan.get("alternative_required_changes", 0),
+        } if plan.get("alternative_requested_changes") else {}),
+    }
+
+
+def _grocery_plan_result(payload: dict, alternative: bool = False) -> dict:
+    values, excluded_ids, prior_product_id_sets = _planning_values(payload, alternative)
+    catalog = load_catalog()
+    eligible, _removed = filter_catalog(
+        planning_candidates(catalog), values["diet"], values["avoid"], values["food_group_exclusions"]
+    )
+    estimated_minimum = minimum_feasible_cost(eligible, values)
+    if estimated_minimum is None:
+        raise _PlanningFeasibilityError(
+            CATALOG_LIMIT_MESSAGE,
+            feasibility_status="clearly_infeasible",
+        )
+    if values["budget"] + 0.005 < estimated_minimum:
+        shortfall = round(estimated_minimum - values["budget"], 2)
+        raise _PlanningFeasibilityError(
+            NO_PLAN_MESSAGE,
+            feasibility_status="clearly_infeasible", estimated_minimum=estimated_minimum,
+            shortfall=shortfall,
+        )
+    plan = solve_plan(eligible, values, excluded_ids, prior_product_id_sets)
+    response = _public_plan_response(values, catalog, eligible, plan)
+    if not response["acceptance"]["accepted"]:
+        app.logger.info(
+            "Grocery plan rejected after optimization: status=%s, basket_lines=%d, "
+            "total_cost=%.2f, score=%s, threshold=%s, nutrition_checks=%s",
+            plan.get("status", "Unknown"), len(response["groceries"]),
+            response["total_cost"], response["acceptance"].get("score"),
+            response["acceptance"].get("score_threshold"),
+            response["acceptance"].get("nutrition_checks", {}),
+        )
+        raise _PlanningFeasibilityError(
+            PARTIAL_PLAN_MESSAGE if response["groceries"] else NO_PLAN_MESSAGE,
+            feasibility_status="clearly_infeasible",
+        )
+    return response
+
+
+def _planning_error(error: _PlanningValidationError):
+    return jsonify({"error": str(error), **error.details}), 400
+
+
+def _feasibility_error(error: _PlanningFeasibilityError):
+    return jsonify({"error": str(error), **error.details}), 422
+
+
+@app.get("/")
+def index():
+    return render_template(
+        "index.html",
+        account_user=_current_account_user(),
+        current_year=datetime.now(timezone.utc).year,
+    )
+
+
+@app.get("/api/account/session")
+def account_session():
+    user = _current_account_user()
+    return jsonify({"authenticated": bool(user), "user": user, "csrf_token": _csrf_token()})
+
+
+@app.post("/api/account/register")
+@_csrf_required
+def account_register():
+    try:
+        payload = _json_object()
+        if payload.get("password") != payload.get("confirm_password"):
+            raise StoreError("Passwords do not match.")
+        user = _accounts().create_user(payload.get("email"), payload.get("password"), payload.get("first_name"), payload.get("last_name", ""))
+        session["user_id"] = user["id"]
+        session["auth_version"] = 0
+        session.permanent = True
+        return jsonify({"user": user}), 201
+    except (ValueError, StoreError) as error:
+        return jsonify({"error": str(error)}), 400
+    except Exception:
+        return jsonify({"error": "The account could not be created. Please try again."}), 500
+
+
+@app.post("/api/account/login")
+@_csrf_required
+def account_login():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Request body must be a JSON object."}), 400
+    key = f"{request.remote_addr or 'unknown'}:{str(payload.get('email') or '').strip().casefold()}"
+    now = time.monotonic()
+    attempts = [stamp for stamp in _LOGIN_ATTEMPTS.get(key, []) if now - stamp < 300]
+    if len(attempts) >= 8:
+        return jsonify({"error": "Too many sign-in attempts. Wait a few minutes and try again."}), 429
+    user = _accounts().authenticate(payload.get("email"), payload.get("password"))
+    if not user:
+        attempts.append(now); _LOGIN_ATTEMPTS[key] = attempts
+        return jsonify({"error": "Email or password is incorrect."}), 401
+    _LOGIN_ATTEMPTS.pop(key, None)
+    session["user_id"] = user["id"]
+    session["auth_version"] = user.pop("session_version")
+    session.permanent = True
+    return jsonify({"user": user})
+
+
+@app.post("/api/account/logout")
+@_csrf_required
+def account_logout():
+    session.pop("user_id", None)
+    session.pop("auth_version", None)
+    return jsonify({"signed_out": True})
+
+
+@app.after_request
+def protect_account_responses(response):
+    if request.path.startswith("/api/account/") or request.path == "/reset-password":
+        response.headers["Cache-Control"] = "no-store"
+    if request.path == "/reset-password":
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Content-Security-Policy"] = "default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    return response
+
+
+@app.get("/reset-password")
+def reset_password_page():
+    return render_template("reset_password.html")
+
+
+@app.post("/api/account/forgot-password")
+@_csrf_required
+def account_forgot_password():
+    confirmation = {"message": "If an account exists for that email, password reset instructions have been sent."}
+    try:
+        payload = _json_object()
+    except ValueError:
+        return jsonify({"error": "Request body must be a JSON object."}), 400
+    try:
+        email = AccountStore.normalize_email(payload.get("email"))
+    except StoreError:
+        return jsonify(confirmation)
+    store = _accounts()
+    if store.allow_password_reset_request(email, request.remote_addr or "unknown"):
+        config = {key: app.config.get(key) for key in (
+            "PASSWORD_RESET_ORIGIN", "PASSWORD_RESET_SENDER", "SMTP_HOST", "SMTP_PORT", "SMTP_FROM",
+            "SMTP_USERNAME", "SMTP_PASSWORD", "SMTP_SSL",
+        )}
+        queue_reset(app.config["ACCOUNT_DATABASE"], email, config)
+    return jsonify(confirmation)
+
+
+@app.post("/api/account/reset-password")
+@_csrf_required
+def account_reset_password():
+    try:
+        payload = _json_object()
+        if payload.get("new_password") != payload.get("confirm_password"):
+            raise StoreError("New passwords do not match.")
+        _accounts().reset_password(payload.get("token"), payload.get("new_password"))
+        session.pop("user_id", None)
+        session.pop("auth_version", None)
+        return jsonify({"message": "Password reset. Sign in with your new password."})
+    except (ValueError, StoreError) as error:
+        return jsonify({"error": str(error)}), 400
+    except Exception:
+        return jsonify({"error": "The password could not be reset. Please try again."}), 500
+
+
+@app.patch("/api/account/profile")
+@_csrf_required
+@_login_required
+def account_profile():
+    try:
+        payload = _json_object()
+        return jsonify({"user": _accounts().update_profile(session["user_id"], payload.get("first_name"), payload.get("last_name", ""))})
+    except (ValueError, StoreError) as error:
+        return jsonify({"error": str(error)}), 400
+
+
+@app.post("/api/account/change-password")
+@_csrf_required
+@_login_required
+def account_change_password():
+    try:
+        payload = _json_object()
+        if payload.get("new_password") != payload.get("confirm_password"):
+            raise StoreError("New passwords do not match.")
+        _accounts().change_password(session["user_id"], payload.get("current_password"), payload.get("new_password"))
+        return jsonify({"changed": True})
+    except (ValueError, StoreError) as error:
+        return jsonify({"error": str(error)}), 400
+
+
+@app.delete("/api/account")
+@_csrf_required
+@_login_required
+def account_delete():
+    try:
+        payload = _json_object()
+        if payload.get("confirmation") != "DELETE":
+            raise StoreError("Type DELETE to confirm permanent account deletion.")
+        _accounts().delete_user(session["user_id"])
+        session.pop("user_id", None)
+        return jsonify({"deleted": True})
+    except (ValueError, StoreError) as error:
+        return jsonify({"error": str(error)}), 400
+
+
+@app.get("/api/saved-items")
+@_login_required
+def saved_items_list():
+    try:
+        return jsonify({"items": _accounts().list_items(session["user_id"], request.args.get("kind"))})
+    except StoreError as error:
+        return jsonify({"error": str(error)}), 400
+
+
+@app.post("/api/saved-items")
+@_csrf_required
+@_login_required
+def saved_items_create():
+    try:
+        payload = _json_object()
+        item = _accounts().save_item(session["user_id"], payload.get("kind"), payload.get("name"), payload.get("data"))
+        return jsonify({"item": item}), 201
+    except (ValueError, StoreError) as error:
+        return jsonify({"error": str(error)}), 400
+    except Exception:
+        return jsonify({"error": "NutriCart could not save that item."}), 500
+
+
+@app.get("/api/saved-items/<item_id>")
+@_login_required
+def saved_items_get(item_id):
+    try:
+        item = _accounts().get_item(session["user_id"], _item_id(item_id))
+        return (jsonify({"item": item}), 200) if item else (jsonify({"error": "Saved item was not found."}), 404)
+    except StoreError as error:
+        return jsonify({"error": str(error)}), 400
+
+
+@app.patch("/api/saved-items/<item_id>")
+@_csrf_required
+@_login_required
+def saved_items_rename(item_id):
+    try:
+        item = _accounts().rename_item(session["user_id"], _item_id(item_id), _json_object().get("name"))
+        return (jsonify({"item": item}), 200) if item else (jsonify({"error": "Saved item was not found."}), 404)
+    except (ValueError, StoreError) as error:
+        return jsonify({"error": str(error)}), 400
+
+
+@app.delete("/api/saved-items/<item_id>")
+@_csrf_required
+@_login_required
+def saved_items_delete(item_id):
+    try:
+        deleted = _accounts().delete_item(session["user_id"], _item_id(item_id))
+        return (jsonify({"deleted": True}), 200) if deleted else (jsonify({"error": "Saved item was not found."}), 404)
+    except StoreError as error:
+        return jsonify({"error": str(error)}), 400
+
+
+@app.post("/api/grocery-plan")
+def grocery_plan():
+    try:
+        payload = _json_object()
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    try:
+        return jsonify(_grocery_plan_result(payload))
+    except _PlanningValidationError as error:
+        return _planning_error(error)
+    except _PlanningFeasibilityError as error:
+        return _feasibility_error(error)
+    except Exception:
+        return jsonify({"error": "The grocery planner is unavailable. Please try again later."}), 500
+
+
+@app.post("/api/grocery-plan/alternative")
+def alternative_grocery_plan():
+    try:
+        payload = _json_object()
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    try:
+        return jsonify(_grocery_plan_result(payload, alternative=True))
+    except _PlanningValidationError as error:
+        return _planning_error(error)
+    except _PlanningFeasibilityError as error:
+        return _feasibility_error(error)
+    except Exception:
+        return jsonify({"error": "The grocery planner is unavailable. Please try again later."}), 500
+
+
+@app.post("/api/grocery-feasibility")
+def grocery_feasibility():
+    try:
+        values = _feasibility_values(_json_object())
+        if values is None:
+            return jsonify({
+                "status": "incomplete", "message": "", "shortfall": None,
+                "guidance": {"budget": None, "people": None, "days": None},
+                "basis": "general",
+            })
+        catalog = load_catalog()
+        eligible, _removed = filter_catalog(
+            planning_candidates(catalog), values["diet"], values["avoid"], values["food_group_exclusions"]
+        )
+        return jsonify(feasibility_guidance(eligible, values))
+    except (ValueError, _PlanningValidationError) as error:
+        return jsonify({"error": str(error)}), 400
+    except Exception:
+        return jsonify({"error": "Feasibility guidance is temporarily unavailable."}), 500
+
+
+@app.post("/api/meal-plan")
+def meal_plan():
+    try:
+        values = _meal_plan_inputs(_json_object())
+        return jsonify(build_meal_plan(**values))
+    except (ValueError, _PlanningValidationError) as error:
+        return jsonify({"error": str(error)}), 400
+    except Exception:
+        return jsonify({"error": "The meal planner is unavailable. Please try again later."}), 500
+
+
+@app.get("/api/fiber-target")
+def fiber_target():
+    try:
+        calories_value = request.args.get("calories")
+        if calories_value == "180":
+            raise _PlanningValidationError(
+                "Daily calories must be at least 500.", suggested_calories=1800
+            )
+        calories = _planner_number(calories_value, "Daily calories", 500, 5000)
+        return jsonify({"calories": calories, "fiber_target": default_fiber_target(calories)})
+    except _PlanningValidationError as error:
+        return _planning_error(error)
+    except Exception:
+        return jsonify({"error": "The fiber calculator is unavailable. Please try again later."}), 500
+
+
+@app.post("/api/nutrition-reference")
+def nutrition_reference():
+    """Return a local, non-medical household planning estimate."""
+    try:
+        payload = _json_object()
+        people = _planner_integer(payload.get("people"), "People", 1, 20)
+        members = payload.get("members")
+        if not isinstance(members, list) or len(members) != people:
+            raise ValueError("Household information must match the People count.")
+        return jsonify(estimate_household(members))
+    except (ValueError, _PlanningValidationError) as error:
+        return jsonify({"error": str(error)}), 400
+    except Exception:
+        return jsonify({"error": "The household estimate is unavailable. Enter manual goals instead."}), 500
+
+
+@app.post("/api/snap-retailers")
+def snap_retailers():
+    try:
+        payload = _json_object()
+        latitude = _number(payload, "latitude", "Latitude", -90, 90)
+        longitude = _number(payload, "longitude", "Longitude", -180, 180)
+        radius = _number(payload, "radius_miles", "Radius", 0)
+        if radius == 0:
+            raise ValueError("Radius must be greater than zero.")
+        stores = find_snap_retailers(latitude, longitude, radius)
+        results = [{key: store.get(key) for key in (
+            "store_name", "store_type", "distance_miles", "street_address",
+            "additional_address", "city", "state", "zip_code", "incentive_program",
+        )} for store in stores]
+        return jsonify({"retailers": results, "safety_cap_reached": bool(getattr(stores, "safety_cap_reached", False))})
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    except RuntimeError:
+        return jsonify({"error": "The SNAP retailer service is unavailable. Please try again later."}), 502
+
+
+@app.post("/api/basket-price-comparison")
+def basket_price_comparison():
+    if demo_catalog_enabled():
+        return jsonify({"error": "Store price comparison is unavailable for example groceries."}), 503
+    try:
+        payload = _json_object()
+        groceries, stores, reference = _price_comparison_inputs(payload)
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    try:
+        access_token = _get_kroger_access_token()
+    except _KrogerAuthenticationError:
+        return jsonify({"error": "Price service authentication is unavailable."}), 502
+    try:
+        result = compare_kroger_basket_prices(
+            groceries,
+            stores,
+            access_token,
+            reference_location_id=reference,
+        )
+        return jsonify(result)
+    except Exception:
+        return jsonify({"error": "The price comparison service is unavailable."}), 502
+
+
+@app.post("/api/geocode")
+def geocode():
+    try:
+        payload = _json_object()
+        address = payload.get("address")
+        if not isinstance(address, str) or not address.strip():
+            raise ValueError("Please enter a street address.")
+        latitude, longitude, matched_address = geocode_address(address)
+        return jsonify({
+            "matched_address": matched_address,
+            "latitude": latitude,
+            "longitude": longitude,
+            "planning_location": location_from_address(matched_address),
+        })
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    except RuntimeError:
+        return jsonify({"error": "The address service is unavailable. Please try again later."}), 502
+
+
+@app.post("/api/reverse-geocode")
+def reverse_geocode():
+    try:
+        payload = _json_object()
+        latitude = _number(payload, "latitude", "Latitude", -90, 90)
+        longitude = _number(payload, "longitude", "Longitude", -180, 180)
+        matched_address = reverse_geocode_coordinates(latitude, longitude)
+        return jsonify({
+            "matched_address": matched_address,
+            "planning_location": location_from_address(matched_address),
+        })
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    except RuntimeError:
+        return jsonify({"error": "The approximate address service is unavailable."}), 502
+
+
+if __name__ == "__main__":
+    app.run()

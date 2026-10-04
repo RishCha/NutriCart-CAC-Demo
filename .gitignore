@@ -1,0 +1,68 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python temporary files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# Virtual environments
+.venv/
+venv/
+
+# Generated NutriCart output
+data/optimized_plan.json
+data/last_inputs.json
+*.log
+instance/
+*.db
+*.sqlite
+*.sqlite3
+
+# Windows temporary files
+Thumbs.db
+Desktop.ini
+
+# SQLite sidecar files
+*.db-*
+*.sqlite-*
+*.sqlite3-*
+
+# Local credentials/private keys
+secrets.json
+secrets.*.json
+credentials.json
+credentials.*.json
+token.json
+tokens.json
+token-cache.json
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Vercel local metadata
+.vercel/
+
+# Backup archives
+*.zip
+*.bak
+
+# Generated catalog caches/reports/backups
+data/*_cache.json
+data/*report.json
+data/final_food_catalog_before*.json
+data/grid_search_results.json
+data/optimizer_settings.json
+
+# Generated public assets (source remains in static/)
+/public/static/
+
+# Private local catalogs (already tracked history needs separate review)
+/data/final_food_catalog.json
+/data/normalized_price_records.json
