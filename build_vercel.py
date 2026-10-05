@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parent
 ASSETS = (
     "account.js", "app.js", "budget_tracker.js", "cursor_effects.js", "grocery.js",
     "meal_plan.js", "password_fields.js", "price_comparison.js", "reset_password.js",
-    "settings.js", "styles.css", "images/usda-snap-logo.png",
+    "settings.js", "feedback.js", "styles.css", "images/usda-snap-logo.png",
 )
 
 

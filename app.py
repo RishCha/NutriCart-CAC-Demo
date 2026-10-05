@@ -17,6 +17,7 @@ from flask.sessions import SecureCookieSessionInterface
 from basket_comparison import compare_kroger_basket_prices
 from account_store import AccountStore, StoreError
 from password_recovery import queue_reset
+from feedback_delivery import delivery_available as feedback_available, send_feedback
 from meal_planner import build_meal_plan
 from nutrition_references import estimate_household
 from plan_feasibility import feasibility_guidance, minimum_feasible_cost, plan_acceptance
@@ -61,6 +62,9 @@ app.config.update(
     SESSION_COOKIE_SECURE=os.getenv("FLASK_COOKIE_SECURE", "true" if os.getenv("VERCEL") == "1" else "").lower() in {"1", "true", "yes"},
     ACCOUNT_DATABASE=os.getenv("NUTRICART_DATABASE") or str(Path(app.instance_path) / "nutricart.db"),
     PASSWORD_RESET_ORIGIN=os.getenv("NUTRICART_PUBLIC_URL", ""),
+    # Public sending stays off until durable deployment abuse controls are reviewed.
+    FEEDBACK_ENABLED=False,
+    FEEDBACK_TO=os.getenv("NUTRICART_FEEDBACK_TO", ""),
     SMTP_HOST=os.getenv("NUTRICART_SMTP_HOST", ""),
     SMTP_PORT=os.getenv("NUTRICART_SMTP_PORT", "587"),
     SMTP_FROM=os.getenv("NUTRICART_SMTP_FROM", ""),
@@ -132,6 +136,46 @@ def _csrf_required(function):
             return jsonify({"error": "The security token is missing or expired. Refresh and try again."}), 403
         return function(*args, **kwargs)
     return guarded
+
+
+@app.get("/api/feedback")
+def feedback_configuration():
+    response = jsonify({"enabled": feedback_available(app.config), "csrf_token": _csrf_token()})
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.post("/api/feedback")
+@_csrf_required
+def submit_feedback():
+    # Same-origin JSON only; neither URL nor recipient can be supplied by visitors.
+    if request.headers.get("Origin") != request.host_url.rstrip("/"):
+        return jsonify({"error": "Please submit feedback from NutriCart."}), 403
+    request.max_content_length = 4096
+    if not request.is_json:
+        return jsonify({"error": "Feedback must be JSON."}), 415
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or set(payload) - {"rating", "comment"}:
+        return jsonify({"error": "Send only a rating and optional comment."}), 400
+    rating, comment = payload.get("rating"), payload.get("comment", "")
+    if (not isinstance(rating, str) or rating not in {"positive", "negative"}
+            or not isinstance(comment, str) or len(comment) > 1000
+            or any(ord(c) < 32 and c not in "\n\r\t" for c in comment)):
+        return jsonify({"error": "Choose a rating and use at most 1,000 characters."}), 400
+    if not feedback_available(app.config):
+        return jsonify({"error": "Feedback sending is not configured."}), 503
+    now = time.time()
+    if now - session.get("feedback_sent_at", 0) < 60:
+        response = jsonify({"error": "Please wait a minute before sending more feedback."})
+        response.headers["Retry-After"] = "60"
+        return response, 429
+    try:
+        send_feedback(rating, comment.strip(), app.config)
+    except Exception:
+        # Never return/log provider errors, credentials, recipients, or comments.
+        return jsonify({"error": "We could not confirm delivery. Please try again later."}), 502
+    session["feedback_sent_at"] = now
+    return jsonify({"delivered": True})
 
 
 def _login_required(function):
@@ -370,6 +414,11 @@ def _planning_values(payload: dict, require_exclusions: bool = False) -> tuple[d
     diet = payload.get("diet")
     if diet not in DIETS:
         raise _PlanningValidationError("Diet must be one of: omnivore, vegetarian, vegan, pescatarian.")
+    include_fish = payload.get("include_fish", False)
+    if not isinstance(include_fish, bool):
+        raise _PlanningValidationError("Include fish must be true or false.")
+    if include_fish and diet != "pescatarian":
+        raise _PlanningValidationError("Include fish is available for Pescatarian plans.")
     preference = payload.get("preference")
     if preference not in PREFERENCES:
         raise _PlanningValidationError("Preference must be one of: balanced, budget, nutrition, variety.")
@@ -422,6 +471,7 @@ def _planning_values(payload: dict, require_exclusions: bool = False) -> tuple[d
         "protein": protein, "fiber": fiber, "fiber_source": fiber_mode,
         "food_group_exclusions": list(food_group_exclusions),
         "nutrition_focus": nutrition_focus,
+        "include_fish": include_fish,
         "location": location,
     }, excluded_ids, prior_product_id_sets
 
@@ -491,12 +541,14 @@ def _public_plan_response(values: dict, catalog: list[dict], eligible: list[dict
         "feasibility_status": acceptance["status"],
         "planning_settings": {
             "diet": values["diet"],
+            "include_fish": values.get("include_fish", False),
             "preference": values["preference"],
             "nutrition_focus": values.get("nutrition_focus", "none"),
             "food_group_exclusions": values.get("food_group_exclusions", []),
         },
         "planning_context": {
             "location": values.get("location"),
+            "include_fish": values.get("include_fish", False),
             "catalog_scope": dict(GENERAL_CATALOG),
             "budget": values["budget"], "people": values["people"], "days": values["days"],
             "diet": values["diet"], "preference": values["preference"],
@@ -628,7 +680,7 @@ def account_logout():
 
 @app.after_request
 def protect_account_responses(response):
-    if request.path.startswith("/api/account/") or request.path == "/reset-password":
+    if request.path.startswith("/api/account/") or request.path in {"/reset-password", "/api/feedback"}:
         response.headers["Cache-Control"] = "no-store"
     if request.path == "/reset-password":
         response.headers["Referrer-Policy"] = "no-referrer"

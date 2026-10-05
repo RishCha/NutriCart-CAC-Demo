@@ -6,7 +6,7 @@
   <title>NutriCart</title>
   {% set brand_icon %}{% include "nutricart-logo.svg" %}{% endset %}
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,{{ brand_icon|urlencode }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='simplified-ui-18') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='snap-flow-24') }}">
 </head>
 <body>
   <main class="shell">
@@ -96,17 +96,16 @@
       </div>
       <section class="locator" hidden>
         <div class="snap-heading"><div><h1 id="locator-title">Find SNAP Stores</h1><p class="intro">Let’s start by finding stores near you.</p></div></div>
-        <p id="snap-planning-location"></p>
         <aside id="snap-plan-context" class="journey-context" hidden aria-labelledby="snap-context-title">
           <div><h2 id="snap-context-title">Find a store, then return to your plan</h2><p id="snap-plan-summary" class="journey-source"></p></div>
           <div class="action-row"><button id="snap-back-to-plan" class="secondary" type="button">Back to Grocery Plan</button><button id="snap-open-meal" class="secondary" type="button">Meal Plan</button><button id="snap-open-budget" class="secondary" type="button">Shopping Budget</button></div>
         </aside>
         <div id="search-panel">
-          <section class="location-picker" aria-labelledby="location-title"><h2 id="location-title" class="sr-only">Search by location or address</h2><button id="location-button" class="primary search-action" type="button" data-cursor-effect="location">Use My Current Location</button><div id="detected-location" class="detected-location" role="status" aria-live="polite" hidden><strong class="sr-only">Current location detected</strong><div id="location-cinematic" class="location-cinematic" hidden aria-hidden="true"><span>LOCATION ACQUIRED</span><p id="location-reveal-title"></p><i></i><small>APPROXIMATE LOCATION</small></div><p id="detected-address" hidden></p><p id="detected-location-note" class="help" hidden>Approximate address based on your device location. Address data &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap contributors</a>.</p></div><div class="or"><span>OR</span></div><form id="address-form"><label for="address">Street address</label><input id="address" name="address" type="text" autocomplete="street-address" placeholder="123 Main Street, Anytown, NY 12345" aria-describedby="address-guidance" required><p id="address-guidance" class="help">Include street, city, state, and ZIP code.</p><button id="address-button" class="secondary search-action" type="submit" data-cursor-effect="address-search">Search by Address</button></form></section>
+          <section class="location-picker" aria-labelledby="location-title"><h2 id="location-title" class="sr-only">Search by location or address</h2><button id="location-button" class="primary search-action" type="button" data-cursor-effect="location">Use My Current Location</button><div id="detected-location" class="detected-location" role="status" aria-live="polite" hidden><span class="location-confirmation-icon" aria-hidden="true">&#10003;</span><div><strong>Location Acquired</strong><p id="snap-planning-location"></p><p id="detected-location-note" class="help" hidden>Address lookup &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap contributors</a>.</p></div></div><div class="or"><span>OR</span></div><form id="address-form"><label for="address">Street address</label><input id="address" name="address" type="text" autocomplete="street-address" placeholder="123 Main Street, Anytown, NY 12345" aria-describedby="address-guidance" required><p id="address-guidance" class="help">Include street, city, state, and ZIP code.</p><button id="address-button" class="secondary search-action" type="submit" data-cursor-effect="address-search">Search by Address</button></form></section>
           <details class="radius-picker radius-options"><summary>Search distance: 5 miles</summary><div><h2 id="radius-title" class="sr-only">Search radius</h2><p>How far should NutriCart look for SNAP-authorized stores?</p><div class="radius-presets" aria-label="Preset search radiuses"><button class="secondary radius-preset is-selected" type="button" data-radius="5" aria-pressed="true">5 miles</button><button class="secondary radius-preset" type="button" data-radius="10" aria-pressed="false">10 miles</button><button class="secondary radius-preset" type="button" data-radius="25" aria-pressed="false">25 miles</button><button class="secondary radius-preset" type="button" data-radius="50" aria-pressed="false">50 miles</button></div><label for="custom-radius">Or enter another distance:</label><div class="custom-radius-row"><input id="custom-radius" type="number" min="0" step="any" inputmode="decimal" aria-describedby="radius-message"><span>miles</span><button id="apply-radius" class="secondary" type="button">Apply Radius</button></div><p id="selected-radius" class="selected-radius" aria-live="polite">Selected radius: 5 miles</p><p id="radius-message" class="help" role="status" aria-live="polite"></p></div></details>
         </div>
-        <div id="status" class="status" role="status" aria-live="polite"></div><section id="results-section" hidden aria-labelledby="results-title"><div class="results-heading"><h2 id="results-title">Nearby SNAP-authorized retailers</h2><button id="new-location" class="secondary" type="button">New Location</button></div><div id="snap-plan-transition" class="guided-next" hidden><h3>Ready to create your plan?</h3><button id="snap-build-basket" class="primary" type="button" hidden>Build My Grocery Plan</button></div><div id="results"></div><button id="show-more" class="secondary" type="button" data-cursor-effect="show-more" hidden>Show More</button></section>
-        <div class="snap-program-source"><img src="{{ url_for('static', filename='images/usda-snap-logo.png') }}" alt="Supplemental Nutrition Assistance Program (SNAP)"><p>Retailer authorization data from USDA</p><small>The SNAP logo is a service mark of the U.S. Department of Agriculture. USDA does not endorse any goods, services, or enterprises.</small></div>
+        <div id="status" class="status" role="status" aria-live="polite"></div><section id="results-section" hidden aria-labelledby="results-title"><div class="results-heading"><div><h2 id="results-title">Select a nearby SNAP-authorized retailer</h2><p>Choose where you'd like to shop to continue.</p></div><button id="new-location" class="secondary" type="button">New Location</button></div><div id="results" role="radiogroup" aria-label="Choose your shopping store"></div><button id="show-more" class="secondary" type="button" data-cursor-effect="show-more" hidden>Show More</button></section>
+        <p class="snap-source-attribution">SNAP retailer information: USDA SNAP Retailer Locator. NutriCart is independent and is not endorsed by USDA. Store inventory and prices are not verified.</p>
       </section>
     </section>
     <section id="planner-view" class="app-view" role="tabpanel" tabindex="-1" hidden aria-labelledby="planner-tab">
@@ -129,6 +128,7 @@
               <div><div class="choice-grid" id="diet-options" role="radiogroup" aria-labelledby="planner-diet-title">
                 <label><input type="radio" name="diet" value="omnivore"> Omnivore</label><label><input type="radio" name="diet" value="vegetarian"> Vegetarian</label><label><input type="radio" name="diet" value="vegan"> Vegan</label><label><input type="radio" name="diet" value="pescatarian"> Pescatarian</label>
               </div></div>
+              <label id="include-fish-option" class="fish-option" hidden><input id="include-fish" type="checkbox"> Include fish</label>
           </section>
 
           <details id="planner-options" class="panel planner-options">
@@ -232,6 +232,7 @@
           <div><h1 id="budget-view-title">Shopping Budget</h1></div>
         </header>
 
+        <div class="shopping-workspace">
         <section id="budget-balance-card" class="budget-balance-card budget-reveal is-unset" aria-labelledby="remaining-label">
           <span id="remaining-label" class="budget-tech-label">Remaining</span>
           <strong id="budget-remaining" class="budget-money budget-money-primary">Not set</strong>
@@ -256,6 +257,30 @@
           </details>
         </section>
 
+        <section tabindex="-1" id="shopping-list-panel" class="shopping-list-panel budget-reveal" aria-labelledby="shopping-list-title">
+          <div class="shopping-list-heading">
+            <div><h2 id="shopping-list-title">Your Shopping List</h2></div>
+            <div class="shopping-list-bulk"><button id="select-all-shopping" class="budget-text-button" type="button" disabled>Mark all purchased</button><button id="reset-shopping-checks" class="budget-text-button" type="button" disabled>Undo listed purchases</button></div>
+          </div>
+          <p class="help">Mark purchased adds the estimated price to spending. Edit it to match your receipt.</p>
+          <div id="shopping-list-ready" hidden>
+            <div class="shopping-list-progress-row">
+              <p id="shopping-list-progress-text" role="status" aria-live="polite">0 of 0 purchased</p>
+              <label class="shopping-list-hide"><input id="hide-collected" type="checkbox"> Hide purchased</label>
+            </div>
+            <div class="shopping-list-progress" role="progressbar" aria-label="In-store checklist progress" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"><i id="shopping-list-progress-fill"></i></div>
+            <div id="shopping-list-items" class="shopping-list-items"></div>
+            <p id="shopping-list-all-collected" class="shopping-list-complete" hidden>All items purchased. Turn off “Hide collected” to review them.</p>
+          </div>
+          <div id="shopping-list-empty" class="shopping-list-empty">
+            <strong>No grocery plan yet.</strong>
+            <p>Build a basket to start your checklist.</p>
+            <button id="shopping-list-create-plan" class="budget-button budget-button-secondary" type="button">Build Your Basket</button>
+          </div>
+        </section>
+
+        </div>
+        <details id="additional-purchases" class="additional-purchases"><summary>Add another purchase</summary>
         <section class="budget-controls-grid budget-reveal">
           <form id="purchase-form" class="budget-panel budget-purchase-panel" novalidate>
             <div class="budget-section-title"><h2>Record What You Bought</h2></div>
@@ -280,27 +305,7 @@
           </form>
         </section>
 
-        <section tabindex="-1" id="shopping-list-panel" class="shopping-list-panel budget-reveal" aria-labelledby="shopping-list-title">
-          <div class="shopping-list-heading">
-            <div><h2 id="shopping-list-title">In-store Checklist</h2></div>
-            <div class="shopping-list-bulk"><button id="select-all-shopping" class="budget-text-button" type="button" disabled>Select all</button><button id="reset-shopping-checks" class="budget-text-button" type="button" disabled>Clear all</button></div>
-          </div>
-          <div id="shopping-list-ready" hidden>
-            <div class="shopping-list-progress-row">
-              <p id="shopping-list-progress-text" role="status" aria-live="polite">0 of 0 collected</p>
-              <label class="shopping-list-hide"><input id="hide-collected" type="checkbox"> Hide collected</label>
-            </div>
-            <div class="shopping-list-progress" role="progressbar" aria-label="In-store checklist progress" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"><i id="shopping-list-progress-fill"></i></div>
-            <div id="shopping-list-items" class="shopping-list-items"></div>
-            <p id="shopping-list-all-collected" class="shopping-list-complete" hidden>All items collected. Turn off “Hide collected” to review them.</p>
-          </div>
-          <div id="shopping-list-empty" class="shopping-list-empty">
-            <strong>No grocery plan yet.</strong>
-            <p>Build a basket to start your checklist.</p>
-            <button id="shopping-list-create-plan" class="budget-button budget-button-secondary" type="button">Build Your Basket</button>
-          </div>
-        </section>
-
+        </details>
         <section class="budget-log-panel budget-reveal" aria-labelledby="purchase-log-title">
           <div class="budget-section-title"><h2 id="purchase-log-title">Purchases</h2><span id="purchase-count">0 items</span></div>
           <p id="empty-purchase-log" class="budget-empty">Your actual purchases will appear here.</p>
@@ -318,17 +323,33 @@
 
     <footer class="site-footer">
       <button id="footer-home" class="footer-brand" type="button" aria-label="NutriCart Home"><span class="brand-mark" aria-hidden="true">{{ brand_icon }}</span><strong>NutriCart</strong></button>
-      <div class="footer-actions"><button id="footer-settings" type="button" data-cursor-context="settings">Settings</button></div>
+      <div class="footer-actions"><button id="footer-settings" type="button" data-cursor-context="settings">Settings</button><button id="feedback-mobile" type="button" data-open-feedback>Feedback</button></div>
       <p class="footer-note">SNAP retailer data comes from USDA. Prices, availability, and nutrition estimates may change. &copy; {{ current_year }} NutriCart</p>
     </footer>
   </main>
+  <button id="feedback-desktop" type="button" data-open-feedback aria-haspopup="dialog">Feedback</button>
+  <dialog id="feedback-dialog" aria-labelledby="feedback-title" aria-describedby="feedback-note">
+    <button id="feedback-close" type="button" aria-label="Close feedback">&times;</button>
+    <h2 id="feedback-title" tabindex="-1">How was your NutriCart experience?</h2>
+    <div id="feedback-rating"><button type="button" data-rating="positive" aria-label="Thumbs up">&#128077;</button><button type="button" data-rating="negative" aria-label="Thumbs down">&#128078;</button></div>
+    <form id="feedback-form" hidden>
+      <label for="feedback-comment">Comment (optional)</label>
+      <textarea id="feedback-comment" maxlength="1000" rows="3" aria-describedby="feedback-privacy"></textarea>
+      <p id="feedback-privacy" class="help">Please leave out personal and shopping details.</p>
+      <div class="action-row"><button id="feedback-back" type="button" class="secondary">Back</button><button id="feedback-submit" type="submit" class="primary" disabled>Submit Feedback</button></div>
+      <p id="feedback-status" role="status" aria-live="polite"></p>
+    </form>
+    <p id="feedback-thanks" role="status" hidden>Thanks for helping us improve NutriCart!</p>
+    <p id="feedback-note">We value your feedback.</p>
+  </dialog>
+  <script src="{{ url_for('static', filename='feedback.js', v='feedback-23') }}" defer></script>
   <script src="{{ url_for('static', filename='settings.js', v='simplified-ui-18') }}" defer></script>
   <script src="{{ url_for('static', filename='password_fields.js', v='account-recovery-1') }}" defer></script>
   <script src="{{ url_for('static', filename='account.js', v='account-recovery-1') }}" defer></script>
-  <script src="{{ url_for('static', filename='app.js', v='simplified-ui-18') }}" defer></script>
-  <script src="{{ url_for('static', filename='grocery.js', v='simplified-ui-18') }}" defer></script>
+  <script src="{{ url_for('static', filename='app.js', v='snap-flow-24') }}" defer></script>
+  <script src="{{ url_for('static', filename='grocery.js', v='snap-flow-24') }}" defer></script>
   <script src="{{ url_for('static', filename='price_comparison.js', v='location-planning-1') }}" defer></script>
-  <script src="{{ url_for('static', filename='meal_plan.js', v='location-planning-1') }}" defer></script>
-  <script src="{{ url_for('static', filename='budget_tracker.js', v='simplified-ui-18') }}" defer></script>
+  <script src="{{ url_for('static', filename='meal_plan.js', v='shopping-flow-22') }}" defer></script>
+  <script src="{{ url_for('static', filename='budget_tracker.js', v='shopping-flow-22') }}" defer></script>
 </body>
 </html>

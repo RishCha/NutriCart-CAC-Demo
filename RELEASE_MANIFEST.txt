@@ -51,3 +51,7 @@ tests/test_web_budget_tracker.py
 tests/test_web_meal_plan.py
 tests/uat_demo_catalog.mjs
 vercel.json
+tests/test_task22.py
+feedback_delivery.py
+static/feedback.js
+tests/test_feedback.py

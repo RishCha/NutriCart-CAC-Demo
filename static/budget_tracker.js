@@ -48,6 +48,7 @@
   let shoppingItems = [];
   let shoppingPlanFingerprint = "";
   let ignoreNextBudgetPlanUpdate = false;
+  let restoredShoppingSession = false;
 
   function parseCents(raw, allowZero = false) {
     const normalized = String(raw).trim().replace(/^\$/, "").replace(/,/g, "");
@@ -144,7 +145,7 @@
     const name = document.createElement("strong");
     name.textContent = purchase.item;
     const store = document.createElement("span");
-    store.textContent = [purchase.planned ? "PLANNED ITEM" : "", purchase.store].filter(Boolean).join(" · ");
+    store.textContent = [purchase.estimated ? "Estimated price" : (purchase.planned ? "Price paid" : ""), purchase.store].filter(Boolean).join(" · ");
     store.hidden = !store.textContent;
     details.append(name, store);
     const deduction = document.createElement("b");
@@ -209,6 +210,7 @@
 
   function renderLog(newId = null) {
     log.replaceChildren(...purchases.slice().reverse().map(purchase => purchaseRow(purchase, purchase.id === newId)));
+    renderShoppingList();
     emptyLog.hidden = purchases.length > 0;
     document.querySelector("#purchase-count").textContent = `${purchases.length} ${purchases.length === 1 ? "item" : "items"}`;
     document.querySelector("#undo-purchase").disabled = purchases.length === 0;
@@ -226,6 +228,26 @@
     return `Quantity: ${quantity}`;
   }
 
+  function linkedPurchase(item) {
+    return item.productId ? purchases.find(entry => entry.planned && entry.productId === item.productId) : null;
+  }
+
+  function markPurchased(item, checked, confirmEdited = true) {
+    const existing = linkedPurchase(item);
+    if (checked && !existing) {
+      if (!budgetReady || !item.productId || !Number.isSafeInteger(item.estimatedCents) || item.estimatedCents < 0) {
+        liveStatus.textContent = "Set a starting budget and use a listed estimate before marking purchased.";
+        return false;
+      }
+      purchases.push({id: nextPurchaseId++, item: item.name, store: "", costCents: item.estimatedCents,
+        planned: true, productId: item.productId, estimated: true});
+    } else if (!checked && existing) {
+      if (confirmEdited && !existing.estimated && !window.confirm(`Undo the purchase of ${existing.item} at the edited price ${formatMoney(existing.costCents)}?`)) return false;
+      purchases = purchases.filter(entry => entry.id !== existing.id);
+    }
+    return true;
+  }
+
   function shoppingRow(item) {
     const row = document.createElement("div");
     row.className = `shopping-list-row${item.checked ? " is-collected" : ""}`;
@@ -236,33 +258,40 @@
     checkbox.type = "checkbox";
     checkbox.checked = item.checked;
     checkbox.dataset.shoppingCheck = item.key;
+    checkbox.setAttribute("aria-label", `Mark purchased: ${item.name}`);
+    checkbox.disabled = !item.productId || (!item.checked && item.estimatedCents === null);
     const name = document.createElement("span");
     name.className = "shopping-list-name";
     name.textContent = item.name;
     const quantity = document.createElement("span");
     quantity.className = "shopping-list-quantity";
-    quantity.textContent = packageDisplay(item);
+    const purchase = linkedPurchase(item);
+    const amount = purchase ? purchase.costCents : item.estimatedCents;
+    const price = amount === null ? "Price unavailable" : `${purchase && !purchase.estimated ? "Paid" : "Estimated"} ${formatMoney(amount)}`;
+    quantity.textContent = `${packageDisplay(item)} \u00b7 ${price}`;
     label.append(checkbox, name, quantity);
     const addPrice = document.createElement("button");
     addPrice.type = "button";
     addPrice.className = "shopping-list-add-price";
     addPrice.dataset.shoppingAddPrice = item.key;
-    addPrice.textContent = "Record Purchase";
-    addPrice.setAttribute("aria-label", `Record actual purchase for ${item.name}`);
+    addPrice.textContent = "Edit price";
+    addPrice.disabled = !purchase;
+    addPrice.setAttribute("aria-label", `Edit price paid for ${item.name}`);
     row.append(label, addPrice);
     return row;
   }
 
   function renderShoppingList(focusKey = null) {
+    shoppingItems.forEach(item => { item.checked = Boolean(linkedPurchase(item)); });
     const total = shoppingItems.length;
     const collected = shoppingItems.filter(item => item.checked).length;
     shoppingListReady.hidden = total === 0;
     shoppingListLink.hidden = total === 0;
     shoppingListEmpty.hidden = total > 0;
-    shoppingListProgressText.textContent = `${collected} of ${total} collected`;
+    shoppingListProgressText.textContent = `${collected} of ${total} purchased`;
     shoppingListProgress.setAttribute("aria-valuemax", String(total));
     shoppingListProgress.setAttribute("aria-valuenow", String(collected));
-    shoppingListProgress.setAttribute("aria-valuetext", `${collected} of ${total} items collected`);
+    shoppingListProgress.setAttribute("aria-valuetext", `${collected} of ${total} items purchased`);
     shoppingListProgressFill.style.width = `${total ? (collected / total) * 100 : 0}%`;
     resetShoppingChecks.disabled = collected === 0;
     selectAllShopping.disabled = total === 0 || collected === total;
@@ -278,7 +307,7 @@
     shoppingPlanFingerprint = nextFingerprint;
     shoppingItems = items
       .filter(item => item && typeof item.product_name === "string" && item.product_name.trim())
-      .map((item, index) => ({key: `shopping-${index}`, sourceIndex: index, name: item.product_name.trim(), quantity: Number(item.quantity) || 1, packageSize: typeof item.package_size === "string" ? item.package_size : "", packageWeightG: Number(item.package_weight_g) || null, checked: false}));
+      .map((item, index) => ({key: `shopping-${index}`, sourceIndex: index, name: item.product_name.trim(), quantity: Number(item.quantity) || 1, packageSize: typeof item.package_size === "string" ? item.package_size : "", packageWeightG: Number(item.package_weight_g) || null, productId: String(item.product_id || ""), estimatedCents: parseCents(item.item_total, true), checked: false}));
     hideCollected.checked = false;
     renderShoppingList();
   }
@@ -329,10 +358,13 @@
   document.addEventListener("nutricart:budget-opened", event => {
     initializeFromPlanner(event.detail?.plannerBudget);
     if (ignoreNextBudgetPlanUpdate) ignoreNextBudgetPlanUpdate = false;
-    else updatePlannedItems(event.detail?.plannedItems);
+    else if (!restoredShoppingSession) updatePlannedItems(event.detail?.plannedItems);
     dashboard.hidden = false;
   });
-  document.addEventListener("nutricart:plan-updated", event => updatePlannedItems(event.detail?.plannedItems));
+  document.addEventListener("nutricart:plan-updated", event => {
+    restoredShoppingSession = false;
+    updatePlannedItems(event.detail?.plannedItems);
+  });
   [document.querySelector("#create-grocery-plan"), document.querySelector("#shopping-list-create-plan")].forEach(button => button.addEventListener("click", () => {
     document.dispatchEvent(new CustomEvent("nutricart:navigate", {detail: {view: "planner"}}));
   }));
@@ -342,8 +374,10 @@
     if (!checkbox) return;
     const item = shoppingItems.find(entry => entry.key === checkbox.dataset.shoppingCheck);
     if (!item) return;
-    item.checked = checkbox.checked;
+    const changed = markPurchased(item, checkbox.checked);
+    renderLog();
     renderShoppingList(item.key);
+    renderTotals(changed ? `${item.name}: purchase ${checkbox.checked ? "added at estimated price" : "undone"}.` : "Purchase unchanged.");
   });
 
   shoppingListItems.addEventListener("click", event => {
@@ -351,28 +385,29 @@
     if (!button) return;
     const item = shoppingItems.find(entry => entry.key === button.dataset.shoppingAddPrice);
     if (!item) return;
-    selectedPlannedItem = plannedItems[item.sourceIndex] || null;
-    plannedSelect.value = selectedPlannedItem ? String(item.sourceIndex) : "other";
-    itemInput.value = item.name;
-    storeInput.value = "";
-    costInput.value = "";
-    document.querySelector("#planned-price-help").hidden = true;
-    purchaseForm.scrollIntoView({behavior: "smooth", block: "center"});
-    costInput.focus({preventScroll: true});
+    const purchase = linkedPurchase(item);
+    if (!purchase) return;
+    editingPurchaseId = purchase.id;
+    renderLog();
+    const field = log.querySelector(`[data-edit-purchase-form="${purchase.id}"] input[name="cost"]`);
+    field?.focus();
+    field?.select();
   });
 
   hideCollected.addEventListener("change", () => renderShoppingList());
   selectAllShopping.addEventListener("click", () => {
-    shoppingItems.forEach(item => { item.checked = true; });
-    renderShoppingList();
-    liveStatus.textContent = "All checklist items marked collected. Purchases and budget were not changed.";
+    if (!window.confirm("Mark all listed items purchased at their estimated prices? Existing purchases keep their prices.")) return;
+    shoppingItems.forEach(item => markPurchased(item, true));
+    renderLog();
+    renderTotals("Listed purchases updated.");
   });
   resetShoppingChecks.addEventListener("click", () => {
-    if (!shoppingItems.some(item => item.checked)) return;
-    shoppingItems.forEach(item => { item.checked = false; });
+    if (!shoppingItems.some(item => linkedPurchase(item))) return;
+    if (!window.confirm("Undo all listed purchases, including any edited prices? Additional purchases will be kept.")) return;
+    shoppingItems.forEach(item => markPurchased(item, false, false));
     hideCollected.checked = false;
-    renderShoppingList();
-    liveStatus.textContent = "In-store Checklist checks reset. Purchases and budget were not changed.";
+    renderLog();
+    renderTotals("Listed purchases undone.");
   });
 
   plannedSelect.addEventListener("change", () => {
@@ -447,8 +482,11 @@
       return;
     }
     error.textContent = "";
-    const purchase = {id: nextPurchaseId++, item, store: storeInput.value.trim(), costCents, planned: Boolean(selectedPlannedItem), productId: selectedPlannedItem?.product_id || null};
-    purchases.push(purchase);
+    const existing = selectedPlannedItem?.product_id ? linkedPurchase({productId: selectedPlannedItem.product_id}) : null;
+    const purchase = {id: existing?.id || nextPurchaseId++, item, store: storeInput.value.trim(), costCents,
+      planned: Boolean(selectedPlannedItem), productId: selectedPlannedItem?.product_id || null, estimated: false};
+    if (existing) Object.assign(existing, purchase);
+    else purchases.push(purchase);
     renderLog(purchase.id);
     renderTotals(`${item} added for ${formatMoney(costCents)}.`);
     purchaseForm.reset();
@@ -510,6 +548,7 @@
     purchase.item = item;
     purchase.store = store;
     purchase.costCents = costCents;
+    purchase.estimated = false;
     editingPurchaseId = null;
     renderLog();
     renderTotals(`${item} updated to ${formatMoney(costCents)}.`);
@@ -547,6 +586,7 @@
     purchases = [];
     editingPurchaseId = null;
     sessionStarted = false;
+    restoredShoppingSession = false;
     nextPurchaseId = 1;
     shoppingItems.forEach(item => { item.checked = false; });
     hideCollected.checked = false;
@@ -573,12 +613,13 @@
     purchases = saved.purchases.map(purchase => ({...purchase, id: nextPurchaseId++}));
     shoppingItems = Array.isArray(saved.shoppingItems) ? saved.shoppingItems
       .filter(item => item && typeof item.name === "string" && item.name.trim())
-      .map((item, index) => ({key: `saved-shopping-${index}`, sourceIndex: index, name: item.name.trim(), quantity: Number(item.quantity) || 1, packageSize: typeof item.packageSize === "string" ? item.packageSize : "", packageWeightG: Number(item.packageWeightG) || null, checked: item.checked === true})) : [];
+      .map((item, index) => ({key: `saved-shopping-${index}`, sourceIndex: index, name: item.name.trim(), quantity: Number(item.quantity) || 1, packageSize: typeof item.packageSize === "string" ? item.packageSize : "", packageWeightG: Number(item.packageWeightG) || null, productId: typeof item.productId === "string" ? item.productId : "", estimatedCents: Number.isSafeInteger(item.estimatedCents) && item.estimatedCents >= 0 ? item.estimatedCents : null, checked: false})) : [];
     shoppingPlanFingerprint = `saved-${event.detail.id || Date.now()}`;
-    updatePlannedItems(shoppingItems.map(item => ({product_name: item.name, quantity: item.quantity})), false);
+    updatePlannedItems(shoppingItems.map(item => ({product_id: item.productId, product_name: item.name, quantity: item.quantity, package_size: item.packageSize, item_total: item.estimatedCents === null ? null : (item.estimatedCents / 100).toFixed(2)})), false);
     hideCollected.checked = false;
     renderShoppingList();
     ignoreNextBudgetPlanUpdate = true;
+    restoredShoppingSession = true;
     editingPurchaseId = null;
     budgetReady = saved.startingBudgetCents > 0 || saved.purchases.length > 0;
     sessionStarted = true; renderLog(); renderTotals("Saved shopping session opened.");

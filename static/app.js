@@ -8,7 +8,6 @@
   const addressInput = document.querySelector("#address");
   const addressButton = document.querySelector("#address-button");
   const detectedLocation = document.querySelector("#detected-location");
-  const detectedAddress = document.querySelector("#detected-address");
   const detectedLocationNote = document.querySelector("#detected-location-note");
   const radiusPresets = [...document.querySelectorAll(".radius-preset")];
   const customRadiusInput = document.querySelector("#custom-radius");
@@ -21,6 +20,13 @@
   const resultsContainer = document.querySelector("#results");
   const showMoreButton = document.querySelector("#show-more");
   const newLocationButton = document.querySelector("#new-location");
+  const buildButton = document.createElement("button");
+  buildButton.id = "snap-build-basket";
+  buildButton.type = "button";
+  buildButton.className = "primary store-build-button";
+  buildButton.textContent = "Build My Grocery Plan";
+  let selectedStore = null;
+  window.NutriCartStore = {get: () => selectedStore ? {...selectedStore} : null};
   let retailers = [];
   let visibleCount = 0;
   let selectedRadius = 5;
@@ -31,22 +37,30 @@
   let searchRequestId = 0;
   let planningLocation = null;
   let addressRevision = 0;
+  let locationWarning = "";
   window.NutriCartLocation = {get: () => planningLocation ? {...planningLocation} : null};
   addressInput.addEventListener("input", () => { addressRevision += 1; });
 
-  function publishLocation(location) {
+  function publishLocation(location, fromDevice = false) {
     planningLocation = location ? {...location} : null;
     const label = [location?.locality, location?.region].filter(Boolean).join(", ");
     document.querySelector("#snap-planning-location").textContent = label;
+    detectedLocation.hidden = !label;
+    detectedLocationNote.hidden = !label || !fromDevice;
     updatePlanningTransition();
     document.dispatchEvent(new CustomEvent("nutricart:location-changed", {detail: {location: planningLocation}}));
   }
 
   function beginLocationChange() {
+    locationWarning = "";
     currentLocation = null;
+    selectedStore = null;
     planningLocation = null;
-    document.querySelector("#snap-build-basket").hidden = true;
-    document.querySelector("#snap-plan-transition").hidden = true;
+    buildButton.remove();
+    detectedLocation.hidden = true;
+    if (activeSearchController) activeSearchController.abort();
+    activeSearchController = null;
+    searchRequestId += 1;
     document.querySelector("#snap-planning-location").textContent = "";
     retailers = [];
     resultsContainer.replaceChildren();
@@ -55,9 +69,11 @@
   }
 
   function updatePlanningTransition() {
-    const ready = Boolean(planningLocation && !resultsSection.hidden && retailers.length && !searchInProgress);
-    document.querySelector("#snap-plan-transition").hidden = !ready;
-    document.querySelector("#snap-build-basket").hidden = !ready;
+    const selectedCard = resultsContainer.querySelector(".store-card.is-selected");
+    const ready = Boolean(planningLocation && selectedStore && selectedCard && !resultsSection.hidden && !searchInProgress);
+    if (ready) {
+      if (buildButton.parentElement !== selectedCard) selectedCard.append(buildButton);
+    } else buildButton.remove();
     locationButton.classList.toggle("primary", !ready);
     locationButton.classList.toggle("secondary", ready);
   }
@@ -111,12 +127,29 @@
     return data;
   }
 
-  function renderStore(store) {
+  function renderStore(store, index) {
     const card = document.createElement("article");
     card.className = "store-card";
     const heading = document.createElement("h3");
     heading.textContent = store.store_name || "Unnamed retailer";
+    const label = document.createElement("label");
+    label.className = "store-choice";
+    const radio = document.createElement("input");
+    radio.type = "radio";
+    radio.name = "snap_store";
+    radio.value = String(index);
+    const title = document.createElement("span");
+    title.textContent = heading.textContent;
+    radio.setAttribute("aria-label", `Select ${heading.textContent}, ${store.street_address || store.city || ""}`);
+    label.append(radio, title);
+    heading.replaceChildren(label);
     card.append(heading);
+    radio.addEventListener("change", () => {
+      if (!radio.checked || searchInProgress) return;
+      selectedStore = {record_id: store.record_id ?? null, name: store.store_name || "Unnamed retailer", city: store.city || "", region: store.state || ""};
+      resultsContainer.querySelectorAll(".store-card").forEach(row => row.classList.toggle("is-selected", row.querySelector("input").checked));
+      updatePlanningTransition();
+    });
     const details = [
       ["Store type", store.store_type || "Not listed"],
       ["Distance", `${Number(store.distance_miles || 0).toFixed(1)} miles`],
@@ -130,14 +163,21 @@
       row.append(strong, document.createTextNode(value || "Not listed"));
       card.append(row);
     });
+    card.addEventListener("click", event => {
+      if (event.target.closest("button, a, input, label")) return;
+      radio.click();
+      radio.focus({preventScroll: true});
+    });
     return card;
   }
 
   function showNextPage() {
+    const scrollY = window.scrollY;
     const nextCount = Math.min(visibleCount + 10, retailers.length);
-    retailers.slice(visibleCount, nextCount).forEach(store => resultsContainer.append(renderStore(store)));
+    retailers.slice(visibleCount, nextCount).forEach((store, index) => resultsContainer.append(renderStore(store, visibleCount + index)));
     visibleCount = nextCount;
     showMoreButton.hidden = visibleCount >= retailers.length;
+    if (visibleCount > 10) window.scrollTo({top: scrollY, behavior: "instant"});
   }
 
   async function search(latitude, longitude, radiusForSearch) {
@@ -145,6 +185,9 @@
     const controller = new AbortController();
     activeSearchController = controller;
     const requestId = ++searchRequestId;
+    selectedStore = null;
+    resultsContainer.replaceChildren();
+    resultsSection.hidden = true;
     setSearchLoading(true);
     status.textContent = `Searching within ${formatRadius(radiusForSearch)} miles...`;
     try {
@@ -157,6 +200,7 @@
       status.textContent = retailers.length
         ? `${retailers.length} SNAP-authorized retailer${retailers.length === 1 ? "" : "s"} found within ${formatRadius(radiusForSearch)} miles.`
         : `No SNAP-authorized retailers found within ${formatRadius(radiusForSearch)} miles. Try a wider search distance.`;
+      if (locationWarning) status.textContent += ` ${locationWarning}`;
       showNextPage();
       return status.textContent;
     } catch (error) {
@@ -176,30 +220,28 @@
       .catch(error => { status.textContent = error.message; });
   }
 
-  function showDetectedLocation(matchedAddress = null) {
-    detectedLocation.hidden = false;
-    detectedAddress.textContent = matchedAddress || "";
-    detectedAddress.hidden = !matchedAddress;
-    detectedLocationNote.hidden = !matchedAddress;
-  }
-
   function requestApproximateAddress(latitude, longitude, requestId) {
     const revision = addressRevision;
-    showDetectedLocation();
     postJson("/api/reverse-geocode", {latitude, longitude})
       .then(match => {
-        if (requestId === locationRequestId && match.matched_address) {
+        if (requestId !== locationRequestId) return;
+        if (!match.matched_address || !match.planning_location) throw new Error("Unresolved location");
+        if (match.matched_address) {
           if (addressRevision === revision) addressInput.value = match.matched_address;
-          if (window.NutriCartSettings?.getSetting("approximateAddressDisplay") !== false) showDetectedLocation(match.matched_address);
-          publishLocation(match.planning_location);
+          publishLocation(match.planning_location, true);
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        if (requestId === locationRequestId) {
+          locationWarning = "Your location name could not be resolved. Please enter an address.";
+          status.textContent = locationWarning;
+        }
+      });
   }
 
   locationButton.addEventListener("click", () => {
     if (searchInProgress) return;
-    status.textContent = "";
+    status.textContent = "Getting your location...";
     const requestId = ++locationRequestId;
     beginLocationChange();
     addressInput.value = "";
@@ -248,10 +290,10 @@
       const match = await postJson("/api/geocode", {address});
       if (requestId !== locationRequestId) return;
       publishLocation(match.planning_location);
-      status.textContent = `Location found: ${match.matched_address}`;
+
       currentLocation = {latitude: match.latitude, longitude: match.longitude};
       const resultMessage = await search(match.latitude, match.longitude, selectedRadius);
-      if (resultMessage) status.textContent = `Location found: ${match.matched_address} ${resultMessage}`;
+      if (resultMessage) status.textContent = resultMessage;
     } catch (error) { status.textContent = error.message; setSearchLoading(false); }
   });
 
@@ -276,9 +318,16 @@
     resultsSection.hidden = true;
     status.textContent = "Choose a new location to search.";
   });
-  document.querySelector("#snap-build-basket").addEventListener("click", () => {
+  buildButton.addEventListener("click", () => {
+    if (!selectedStore || !planningLocation || searchInProgress) return;
     document.dispatchEvent(new CustomEvent("nutricart:navigate", {detail: {view: "planner"}}));
   });
+  const header = document.querySelector(".site-header");
+  const updateHeaderOffset = () => {
+    document.documentElement.style.setProperty("--header-offset", `${Math.ceil(header.getBoundingClientRect().height + 24)}px`);
+  };
+  new ResizeObserver(updateHeaderOffset).observe(header);
+  updateHeaderOffset();
   const initialRadius = Number(window.NutriCartSettings?.getSetting("snapRadius") || 5);
   selectRadius(initialRadius, radiusPresets.find(button => Number(button.dataset.radius) === initialRadius));
   document.addEventListener("nutricart:settings-changed", event => {

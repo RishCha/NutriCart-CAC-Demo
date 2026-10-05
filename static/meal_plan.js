@@ -78,7 +78,6 @@
   function render(data) {
     const context = currentPlan?.context || {};
     document.querySelector("#meal-source-summary").textContent = [
-      [context.location?.locality, context.location?.region].filter(Boolean).join(", "),
       context.days ? `${context.days} ${context.days === 1 ? "day" : "days"}` : "",
       context.people ? `${context.people} ${context.people === 1 ? "person" : "people"}` : "",
       context.diet ? String(context.diet).replaceAll("_", " ") : "",

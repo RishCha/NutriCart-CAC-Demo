@@ -36,7 +36,7 @@ class ShoppingBudgetPageTests(unittest.TestCase):
         self.assertIn('id="purchase-store-disclosure"', self.page)
         self.assertIn("+ Add store (optional)", self.page)
         self.assertIn("Record Purchase", self.page)
-        self.assertIn("budget_tracker.js?v=simplified-ui-18", self.page)
+        self.assertIn("budget_tracker.js?v=shopping-flow-22", self.page)
 
     def test_forms_have_real_validation_hooks(self):
         self.assertIn('id="purchase-item" type="text"', self.page)
@@ -186,7 +186,7 @@ class ShoppingBudgetPageTests(unittest.TestCase):
         self.assertIn('for="planned-purchase-select">Select from your plan', self.page)
 
     def test_alternative_plan_changes_suggestions_not_logged_purchases(self):
-        listener = self.script.split('document.addEventListener("nutricart:plan-updated"', 1)[1].split("startingForm.addEventListener", 1)[0]
+        listener = self.script.split('document.addEventListener("nutricart:plan-updated"', 1)[1].split('});', 1)[0]
         self.assertIn("updatePlannedItems", listener)
         self.assertNotIn("purchases", listener)
 
@@ -279,34 +279,26 @@ class ShoppingBudgetPageTests(unittest.TestCase):
         self.assertIn("updateShoppingList(plannedItems)", self.script)
         self.assertIn("name: item.product_name.trim()", self.script)
         self.assertIn("quantity: Number(item.quantity) || 1", self.script)
-        self.assertIn("quantity.textContent = packageDisplay(item)", self.script)
+        self.assertIn("${packageDisplay(item)}", self.script)
 
-    def test_checking_items_updates_progress_without_touching_budget_math(self):
-        handler = self.script.split('shoppingListItems.addEventListener("change"', 1)[1].split('shoppingListItems.addEventListener("click"', 1)[0]
-        self.assertIn("item.checked = checkbox.checked", handler)
-        self.assertIn("renderShoppingList(item.key)", handler)
-        for forbidden in ("purchases", "startingCents", "renderTotals", "costCents"):
-            self.assertNotIn(forbidden, handler)
-        render = self.script.split("function renderShoppingList", 1)[1].split("function updateShoppingList", 1)[0]
-        self.assertIn('`${collected} of ${total} collected`', render)
-        self.assertIn('setAttribute("aria-valuenow", String(collected))', render)
+    def test_checking_items_uses_linked_purchase_ledger(self):
+        self.assertIn('markPurchased(item, checkbox.checked)', self.script)
+        self.assertIn('costCents: item.estimatedCents', self.script)
+        self.assertIn('item.checked = Boolean(linkedPurchase(item))', self.script)
+        self.assertIn('estimated: true', self.script)
+        self.assertIn('Mark purchased:', self.script)
 
-    def test_hide_collected_reset_and_all_collected_state_are_independent(self):
-        self.assertIn("shoppingItems.filter(item => !item.checked)", self.script)
-        self.assertIn("shopping-list-all-collected", self.page)
-        reset = self.script.split('resetShoppingChecks.addEventListener("click"', 1)[1].split('startingForm.addEventListener', 1)[0]
-        self.assertIn("item.checked = false", reset)
-        self.assertIn("Purchases and budget were not changed", reset)
-        self.assertNotIn("purchases =", reset)
-        self.assertNotIn("renderTotals", reset)
+    def test_bulk_undo_preserves_manual_purchases_and_confirms(self):
+        handler = self.script.split('resetShoppingChecks.addEventListener("click"', 1)[1].split('plannedSelect.addEventListener', 1)[0]
+        self.assertIn('window.confirm', handler)
+        self.assertIn('markPurchased(item, false, false)', handler)
+        self.assertNotIn('purchases = []', handler)
 
-    def test_record_purchase_prefills_item_but_never_planned_price(self):
+    def test_list_price_edit_targets_existing_ledger_entry(self):
         handler = self.script.split('shoppingListItems.addEventListener("click"', 1)[1].split('hideCollected.addEventListener', 1)[0]
-        self.assertIn("itemInput.value = item.name", handler)
-        self.assertIn('costInput.value = ""', handler)
-        self.assertIn("costInput.focus", handler)
-        self.assertNotIn("item_total", handler)
-        self.assertNotIn("purchases.push", handler)
+        self.assertIn('const purchase = linkedPurchase(item)', handler)
+        self.assertIn('editingPurchaseId = purchase.id', handler)
+        self.assertNotIn('purchases.push', handler)
 
     def test_fresh_shopping_budget_is_explicitly_unset(self):
         self.assertIn('id="budget-remaining" class="budget-money budget-money-primary">Not set</strong>', self.page)
@@ -321,9 +313,9 @@ class ShoppingBudgetPageTests(unittest.TestCase):
         self.assertIn("Set a starting budget to track spending.", unset)
 
     def test_checklist_and_actual_spending_are_named_distinctly(self):
-        self.assertIn("In-store Checklist", self.page)
+        self.assertIn("Your Shopping List", self.page)
         self.assertNotIn("Checking items tracks collection", self.page)
-        self.assertIn('addPrice.textContent = "Record Purchase"', self.script)
+        self.assertIn('addPrice.textContent = "Edit price"', self.script)
         self.assertIn("Save Shopping Session", self.page)
 
     def test_no_plan_checklist_state_and_mobile_layout(self):
@@ -338,12 +330,11 @@ class ShoppingBudgetPageTests(unittest.TestCase):
         self.assertIn(".shopping-list-panel { order: 4", shopping_styles)
         self.assertIn(".budget-log-panel { order: 3", shopping_styles)
 
-    def test_bulk_collection_never_changes_purchase_totals(self):
+    def test_bulk_purchasing_requires_confirmation(self):
         handler = self.script.split('selectAllShopping.addEventListener("click"', 1)[1].split('resetShoppingChecks.addEventListener', 1)[0]
-        self.assertIn("item.checked = true", handler)
-        self.assertIn("Purchases and budget were not changed", handler)
-        for forbidden in ("purchases.push", "renderTotals", "costCents"):
-            self.assertNotIn(forbidden, handler)
+        self.assertIn('window.confirm', handler)
+        self.assertIn('markPurchased(item, true)', handler)
+        self.assertIn('renderTotals', handler)
 
     def test_quantity_fallback_does_not_invent_package_units(self):
         formatter = self.script.split("function packageDisplay", 1)[1].split("function shoppingRow", 1)[0]
@@ -362,7 +353,7 @@ class ShoppingBudgetPageTests(unittest.TestCase):
         self.assertIn("shoppingItems:", requested)
         opened = self.script.split('document.addEventListener("nutricart:open-saved-shopping"', 1)[1].split("renderLog();", 1)[0]
         self.assertIn("saved.shoppingItems", opened)
-        self.assertIn("checked: item.checked === true", opened)
+        self.assertIn("productId: typeof item.productId", opened)
         self.assertIn("saved.startingBudgetCents", opened)
         self.assertIn("saved.purchases", opened)
         self.assertNotIn("optimiz", opened.lower())

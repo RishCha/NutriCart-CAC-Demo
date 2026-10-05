@@ -56,7 +56,6 @@
   let alternativeHistory = [];
   let activeView = snapView;
   let viewTransitioning = false;
-  let locationRevealRequest = 0;
   let feasibilityTimer = null;
   let feasibilityController = null;
   let feasibilityRequest = 0;
@@ -138,50 +137,6 @@
     document.querySelector("#snap-plan-summary").textContent = `${context.days || "Selected"} ${context.days === 1 ? "day" : "days"} · ${context.people || "Selected"} ${context.people === 1 ? "person" : "people"} · ${diet}`;
   }
 
-  function locationParts(address) {
-    const parts = address.split(",").map(part => part.trim()).filter(Boolean);
-    const zipIndex = parts.findIndex(part => /\b\d{5}(?:-\d{4})?\b/.test(part));
-    const zipSharesState = zipIndex >= 0 && !/^\d{5}(?:-\d{4})?$/.test(parts[zipIndex]);
-    const stateIndex = zipIndex >= 0 ? (zipSharesState ? zipIndex : zipIndex - 1) : Math.max(parts.length - 2, 0);
-    let cityIndex = stateIndex - 1;
-    while (cityIndex > 0 && /county$/i.test(parts[cityIndex])) cityIndex -= 1;
-    const state = (parts[stateIndex] || "").replace(/\b\d{5}(?:-\d{4})?\b/, "").trim();
-    return {
-      title: (parts[cityIndex] || parts[0] || address).toUpperCase(),
-      secondary: state && state !== parts[cityIndex] ? state.toUpperCase() : "",
-    };
-  }
-
-  async function revealLocation(address) {
-    const requestId = ++locationRevealRequest;
-    const cinematic = document.querySelector("#location-cinematic");
-    const title = document.querySelector("#location-reveal-title");
-    const parts = locationParts(address);
-    if (window.NutriCartSettings?.getSetting("cinematicIntros") === false) {
-      cinematic.hidden = true;
-      return;
-    }
-    cinematic.hidden = false;
-    cinematic.classList.remove("is-complete");
-    title.textContent = "";
-    title.dataset.secondary = parts.secondary;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      title.textContent = parts.title;
-      cinematic.classList.add("is-complete");
-      return;
-    }
-    for (const character of parts.title) {
-      if (requestId !== locationRevealRequest) return;
-      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-        title.textContent = parts.title;
-        break;
-      }
-      title.textContent += character;
-      await wait(26);
-    }
-    cinematic.classList.add("is-complete");
-  }
-
   async function requestJson(url, options = {}) {
     const response = await fetch(url, options);
     const data = await response.json().catch(() => ({}));
@@ -202,12 +157,20 @@
     return input.value.trim() === "" ? NaN : Number(input.value);
   }
 
+  form.addEventListener("change", () => {
+    const compatible = selectedValue("diet") === "pescatarian";
+    document.querySelector("#include-fish-option").hidden = !compatible;
+    if (!compatible) document.querySelector("#include-fish").checked = false;
+  });
+
   function collectInputs() {
     const calories = numericValue("#calories");
     const protein = numericValue("#protein");
     const fiber = numericValue("#fiber-custom");
     return {
       location: window.NutriCartLocation?.get() || null,
+      selected_store: window.NutriCartStore?.get() || null,
+      include_fish: selectedValue("diet") === "pescatarian" && document.querySelector("#include-fish").checked,
       budget: numericValue("#budget"),
       people: numericValue("#people"),
       days: numericValue("#days"),
@@ -230,6 +193,8 @@
     const manuallyCustomized = [calories, protein, fiber].some(Number.isFinite);
     return {
       location: window.NutriCartLocation?.get() || null,
+      selected_store: window.NutriCartStore?.get() || null,
+      include_fish: selectedValue("diet") === "pescatarian" && document.querySelector("#include-fish").checked,
       budget: Number.isFinite(numericValue("#budget")) ? numericValue("#budget") : null,
       people: Number.isInteger(numericValue("#people")) ? numericValue("#people") : null,
       days: Number.isInteger(numericValue("#days")) ? numericValue("#days") : null,
@@ -348,6 +313,7 @@
     addDefinition("People", String(values.people));
     addDefinition("Days", String(values.days));
     addDefinition("Diet", labelFor(values.diet));
+    if (values.include_fish) addDefinition("Fish", "Include fish");
     addDefinition("Plan Priority", labelFor(values.preference));
     addDefinition("Nutrition Focus", labelFor(values.nutrition_focus));
     addDefinition("Food Groups Excluded", values.food_group_exclusions.map(labelFor).join(", ") || "None");
@@ -529,6 +495,7 @@
       alternativeHistory = [];
     }
     const context = {...(contextOverride || result.planning_context || reviewedInputs || {})};
+    if (!contextOverride) context.selected_store = reviewedInputs?.selected_store || null;
     const locationLabel = [context.location?.locality, context.location?.region].filter(Boolean).join(", ");
     const budget = Number(context.budget);
     const total = Number(result.total_cost || 0);
@@ -775,6 +742,7 @@
       });
       const excluded = new Set(context.food_group_exclusions || []);
       form.querySelectorAll('input[name="food_group_exclusions"]').forEach(input => { input.checked = excluded.has(input.value); });
+      document.querySelector("#include-fish").checked = context.diet === "pescatarian" && context.include_fish === true;
       document.querySelector("#nutrition-focus").value = context.nutrition_focus || "none";
       document.querySelector("#foods-to-avoid").value = (context.foods_to_avoid || []).join(", ");
     }
@@ -1041,12 +1009,6 @@
     explanation.hidden = !explanation.hidden;
     event.currentTarget.setAttribute("aria-expanded", String(!explanation.hidden));
   });
-  const detectedAddress = document.querySelector("#detected-address");
-  new MutationObserver(() => {
-    const address = detectedAddress.textContent.trim();
-    if (address) revealLocation(address);
-    else document.querySelector("#location-cinematic").hidden = true;
-  }).observe(detectedAddress, {childList: true, characterData: true, subtree: true});
   const initialDiet = window.NutriCartSettings?.getSetting("defaultDiet") || "none";
   const initialPriority = window.NutriCartSettings?.getSetting("defaultPlanPriority") || "balanced";
   const initialFocus = window.NutriCartSettings?.getSetting("defaultNutritionFocus") || "none";

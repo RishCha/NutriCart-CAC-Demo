@@ -1,4 +1,5 @@
-// Run: node tests/uat_demo_catalog.mjs (starts an isolated local Flask server)
+// Run: node tests/uat_demo_catalog.mjs [http://127.0.0.1:5000]
+// An explicit URL tests the existing listener without starting or stopping Flask.
 // Uses installed Edge and Python, with an isolated browser profile and database.
 import assert from "node:assert/strict";
 import {spawn} from "node:child_process";
@@ -75,22 +76,23 @@ async function evaluate(expression) {
 
 try {
 
-  const port = await freePort();
-  const url = `http://127.0.0.1:${port}`;
+  const externalUrl = process.argv[2];
+  const port = externalUrl ? Number(new URL(externalUrl).port) : await freePort();
+  const url = externalUrl || `http://127.0.0.1:${port}`;
   assert.equal(new URL(url).hostname, '127.0.0.1', 'UAT must use the local NutriCart server');
-  {
+  if (!externalUrl) {
   server = spawn(pythonPath, ["-B", "-m", "flask", "--app", "app", "run", "--host", "127.0.0.1", "--port", String(port), "--no-reload"], {
     cwd: root, windowsHide: true,
     env: {...process.env, NUTRICART_CATALOG_MODE: "demo", NUTRICART_DATABASE: path.join(runtime, "accounts.db"), FLASK_DEBUG: "0", PYTHONDONTWRITEBYTECODE: "1",
-      PYTHON_DOTENV_DISABLED: "1", FLASK_SKIP_DOTENV: "1"},
+      PYTHON_DOTENV_DISABLED: "1", FLASK_SKIP_DOTENV: "1", NUTRICART_FEEDBACK_TO: ""},
     stdio: ["ignore", "pipe", "pipe"],
   });
   server.stdout.on("data", chunk => { serverOutput += chunk; });
   server.stderr.on("data", chunk => { serverOutput += chunk; });
   }
   await until(async () => { try { return (await localGet(url)).status === 200; } catch { return false; } }, "Flask readiness");
-  for (const asset of ['settings.js','grocery.js','styles.css']) {
-    const served=await localGet(url+'/static/'+asset+'?verify=task18-final');
+  for (const asset of ['app.js','settings.js','grocery.js','styles.css','budget_tracker.js','feedback.js','meal_plan.js']) {
+    const served=await localGet(url+'/static/'+asset+'?verify=localhost-store-flow');
     assert.equal(served.status,200);
     assert.equal(served.body,await readFile(path.join(root,'static',asset),'utf8'),'Fresh server must serve current '+asset);
   }
@@ -129,7 +131,7 @@ try {
   const checks=[], assets=[];
   socket.addEventListener('message',event=>{const m=JSON.parse(event.data);if(m.method==='Network.responseReceived' && m.params.response.url.includes('/static/')) assets.push({url:new URL(m.params.response.url).pathname,status:m.params.response.status});});
   await cdp('Network.enable');await cdp('Network.setCacheDisabled',{cacheDisabled:true});
-  await cdp('Page.reload',{ignoreCache:true});await delay(1200);
+  await cdp('Page.reload',{ignoreCache:true});await until(()=>evaluate("document.readyState==='complete' && Boolean(window.NutriCartSettings)"),'scripts after hard refresh');
   const check=(value,name)=>{assert(value,name);checks.push(name);console.log('PASS:',name);};
   async function click(selector){
     await evaluate(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'center',behavior:'instant'})`);await delay(150);
@@ -140,10 +142,19 @@ try {
 
   const layouts=[];
   async function layout(selector,name){
-    for(const width of [1440,1280,768,390]) for(const size of ['normal','large','extra-large']) {
-      await cdp('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:width===390});
+    for(const width of [1440,1280,768,390,320]) for(const size of ['normal','large','extra-large']) {
+      await cdp('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:width<=390});
       await evaluate(`NutriCartSettings.setSetting('textSize',${JSON.stringify(size)})`);await delay(100);
-      const state=await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});return {overflow:document.documentElement.scrollWidth>innerWidth+1,clipped:[...n.querySelectorAll('button,input,select')].filter(x=>x.getClientRects().length && x.scrollWidth>x.clientWidth+3).map(x=>x.id)}})()`);
+      await evaluate(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'start',behavior:'instant'})`);await delay(120);
+      const state=await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});return {overflow:document.documentElement.scrollWidth>innerWidth+1,clipped:[...n.querySelectorAll('button,input,select')].filter(x=>x.getClientRects().length && ((x.tagName!=='INPUT' && x.scrollWidth>x.clientWidth+3) || x.getBoundingClientRect().right>innerWidth+1)).map(x=>x.id)}})()`);
+      if(name==='store-results') {
+        assert(await evaluate("(()=>{const c=document.querySelector('.store-card.is-selected').getBoundingClientRect(),b=document.querySelector('#snap-build-basket').getBoundingClientRect();return b.left>=c.left && b.right<=c.right && b.bottom<=c.bottom && getComputedStyle(document.querySelector('[name=snap_store]')).visibility==='visible'})()"),JSON.stringify({width,size}));
+      }
+      if(name==='shopping') {
+        const order=await evaluate(`(()=>{const b=document.querySelector('#budget-balance-card').getBoundingClientRect(),l=document.querySelector('#shopping-list-panel').getBoundingClientRect(),a=document.querySelector('#additional-purchases').getBoundingClientRect();return {balance:b.top,list:l.top,bottom:b.bottom,additional:a.top,listBottom:l.bottom}})()`);
+        assert(order.additional>=order.listBottom-1,JSON.stringify({width,size,order}));
+        if(width<=850) assert(order.list>=order.bottom && order.list-order.bottom<25,JSON.stringify({width,size,order}));
+      }
       assert(!state.overflow && !state.clipped.length,JSON.stringify({name,width,size,state}));layouts.push({name,width,size});if(width===390 && size==='extra-large'){const shot=await cdp('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(path.join(artifacts,name+'-390.png'),Buffer.from(shot.data,'base64'));}
     }
     await cdp('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});await evaluate("NutriCartSettings.setSetting('textSize','normal')");
@@ -151,6 +162,45 @@ try {
   await evaluate("NutriCartSettings.setSetting('cursorEffects',false);document.addEventListener('nutricart:plan-updated',e=>window.task16Plan={context:e.detail.context,result:e.detail.result})");
   check(await evaluate("document.querySelectorAll('.hero-actions button').length===1 && document.querySelector('#hero-find-snap').textContent===\"Let's get started\""),'Home unchanged');
   check(await evaluate("document.querySelector('#home-button svg') && document.querySelector('.footer-brand svg') && document.querySelector('link[rel=icon]').href.startsWith('data:image/svg+xml')"),'Original basket logo in header footer and favicon');
+  check(await evaluate("!document.querySelector('#feedback-dialog').open"),'Feedback never opens automatically');
+  await click('#feedback-desktop');
+  check(await evaluate("document.querySelector('#feedback-title').textContent==='How was your NutriCart experience?' && document.querySelector('#feedback-form').hidden && document.querySelectorAll('#feedback-rating button').length===2"),'Feedback stage one shows only thumb choices');
+  await click('[data-rating=positive]');
+  check(await evaluate("document.querySelector('#feedback-title').textContent==='What did you like about NutriCart?' && document.querySelector('#feedback-submit').disabled"),'Positive question and unconfigured delivery disabled');
+  await click('#feedback-back');await evaluate("document.querySelector('[data-rating=negative]').focus()");
+  await cdp('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13,text:'\r'});await cdp('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
+
+  check(await evaluate("document.querySelector('#feedback-title').textContent==='What could we improve?'"),'Negative question is conditional');
+  for(const width of [1440,768,390,320]) for(const size of ['normal','large','extra-large']) {
+    await cdp('Emulation.setDeviceMetricsOverride',{width,height:800,deviceScaleFactor:1,mobile:width<=390});
+    await evaluate(`NutriCartSettings.setSetting('textSize',${JSON.stringify(size)})`);await delay(100);
+    check(await evaluate("(()=>{const d=document.querySelector('#feedback-dialog'),r=d.getBoundingClientRect();return r.left>=0 && r.right<=innerWidth && r.top>=0 && r.bottom<=innerHeight && d.scrollWidth<=d.clientWidth+1})()"),'Feedback fits '+width+' '+size);
+    if(width===390 && size==='extra-large') {const shot=await cdp('Page.captureScreenshot',{format:'png'});await writeFile(path.join(artifacts,'feedback-390.png'),Buffer.from(shot.data,'base64'));}
+
+  }
+  await cdp('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});await cdp('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+  check(await evaluate("!document.querySelector('#feedback-dialog').open && document.querySelector('#feedback-desktop').getClientRects().length===0 && document.querySelector('#feedback-mobile').getClientRects().length>0"),'Escape dismisses; mobile uses footer only');
+  await click('#feedback-mobile');
+  for(let tab=0;tab<8;tab++) {await cdp('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});await cdp('Input.dispatchKeyEvent',{type:'keyUp',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});}
+  check(await evaluate("document.querySelector('#feedback-dialog').contains(document.activeElement)"),'Keyboard focus stays within the open native dialog');
+  await click('#feedback-close');
+  check(await evaluate("document.activeElement.id==='feedback-mobile'"),'Closing restores focus to mobile launcher');
+  await cdp('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});await evaluate("NutriCartSettings.setSetting('textSize','normal')");
+  // Controlled transport fixtures never send email. Backend SMTP tests separately verify acknowledgement and TLS.
+  await evaluate(`window.feedbackRealFetch=window.fetch;window.feedbackPosts=[];window.feedbackOutcome='fail';window.fetch=(url,opts)=>{
+    if(url==='/api/feedback') {
+      if(opts?.method==='POST') {window.feedbackPosts.push(JSON.parse(opts.body));return new Promise(resolve=>setTimeout(()=>resolve(new Response(JSON.stringify(window.feedbackOutcome==='ok'?{delivered:true}:{error:'Delivery failed.'}),{status:window.feedbackOutcome==='ok'?200:502})),300));}
+      return Promise.resolve(new Response(JSON.stringify({enabled:true,csrf_token:'test-token'}),{status:200}));
+    }
+    return window.feedbackRealFetch(url,opts);
+  }`);
+  await click('#feedback-desktop');await click('[data-rating=positive]');await fill({'feedback-comment':'Useful tools'});
+  await evaluate("document.querySelector('#feedback-form').requestSubmit();document.querySelector('#feedback-form').requestSubmit()");await delay(500);
+  check(await evaluate("window.feedbackPosts.length===1 && document.querySelector('#feedback-thanks').hidden && document.querySelector('#feedback-comment').value==='Useful tools'"),'Duplicate submit blocked; failed delivery retains draft without thanks');
+  await evaluate("window.feedbackOutcome='ok'");await click('#feedback-submit');
+  check(await evaluate("!document.querySelector('#feedback-thanks').hidden && document.querySelector('#feedback-thanks').textContent==='Thanks for helping us improve NutriCart!' && document.querySelector('#feedback-form').hidden"),'Thanks only after acknowledged delivery');
+  check(await evaluate("window.feedbackPosts.every(p=>Object.keys(p).sort().join(',')==='comment,rating') && document.querySelector('#feedback-comment').value===''"),'Feedback sends no shopping metadata and clears delivered comment');
+  await click('#feedback-close');await evaluate('window.fetch=window.feedbackRealFetch');
   await click('#planner-tab');
   check(await evaluate("document.querySelector('#planner-form').hidden && !document.querySelector('#planner-location-gate').hidden"),'Fresh guest sees location gate instead of form');
   await evaluate("window.originalLocationGetter=NutriCartLocation.get;NutriCartLocation.get=()=>({});document.dispatchEvent(new Event('nutricart:location-changing'))");
@@ -173,10 +223,10 @@ try {
   check(await evaluate("document.querySelector('#clear-saved-settings').hidden && !localStorage.getItem('nutricart.settings.v2')"),'No storage when remembering is disabled');
   await click('[data-setting=rememberSettings]');
   check(await evaluate("Object.keys(JSON.parse(localStorage.getItem('nutricart.settings.v2'))).sort().join(',')==='highContrast,rememberSettings,snapRadius,textSize,usePlannerBudget'"),'Only five approved preference keys are stored');
-  await cdp('Page.reload',{ignoreCache:true});await delay(800);
+  await cdp('Page.reload',{ignoreCache:true});await until(()=>evaluate("document.readyState==='complete' && Boolean(window.NutriCartSettings)"),'scripts after preferences reload');
   check(await evaluate("NutriCartSettings.getSetting('snapRadius')===10 && !document.querySelector('#home').hidden"),'Preferences persist and reload always starts Home');
   await evaluate("localStorage.setItem('nutricart.settings.v2',JSON.stringify({rememberSettings:true,textSize:'small',startingView:'budget',cursorEffects:true,confirmBeforeClear:false,snapRadius:25,privateUnknown:'must-disappear'}))");
-  await cdp('Page.reload',{ignoreCache:true});await delay(800);
+  await cdp('Page.reload',{ignoreCache:true});await until(()=>evaluate("document.readyState==='complete' && Boolean(window.NutriCartSettings)"),'scripts after preferences reload');
   check(await evaluate("!document.querySelector('#home').hidden && NutriCartSettings.getSetting('textSize')==='normal' && NutriCartSettings.getSetting('confirmBeforeClear')===true && !JSON.parse(localStorage.getItem('nutricart.settings.v2')).privateUnknown"),'Legacy keys ignored and removed; safe defaults restored');
   await click('#settings-button');await click('.settings-category:nth-child(4) summary');
   let dialogAnswer=false,dialogSeen=0;
@@ -186,7 +236,7 @@ try {
   check(await evaluate("!localStorage.getItem('nutricart.settings.v2') && document.querySelector('#clear-saved-settings').hidden"),'Confirmed clear removes preferences only');
   await click('#settings-close');
   await evaluate("NutriCartSettings.setSetting('snapRadius',5)");
-  await cdp('Page.reload',{ignoreCache:true});await delay(800);
+  await cdp('Page.reload',{ignoreCache:true});await until(()=>evaluate("document.readyState==='complete' && Boolean(window.NutriCartSettings)"),'scripts after preferences reload');
   check(await evaluate("NutriCartSettings.getSetting('snapRadius')===5 && !NutriCartSettings.getSetting('rememberSettings')"),'Disabled persistence does not survive reload');
   await evaluate("document.addEventListener('nutricart:plan-updated',e=>window.task16Plan={context:e.detail.context,result:e.detail.result})");
   await click('#meal-plan-tab');
@@ -196,14 +246,80 @@ try {
   check(await evaluate("document.querySelector('#view-shopping-list').hidden"),'No shopping link without a basket');
   await click('#home-button');await click('#hero-find-snap');
   check(await evaluate("!document.querySelector('.locator').hidden"),'Start opens SNAP');
+  check(await evaluate("document.querySelector('#detected-location').hidden && !document.querySelector('#snap-build-basket') && document.querySelector('.or').getClientRects().length>0"),'Initial SNAP state has no success panel, empty bar or continuation');
+  // Deterministic USDA-response fixtures cover cardinalities; the real endpoints are exercised next.
+  await evaluate(`window.realFetch=window.fetch;window.fixtureCount=0;window.fixtureGeocodeFail=false;window.fetch=(url,opts)=>{
+    if(url==='/api/geocode' && window.fixtureGeocodeFail)return Promise.resolve(new Response(JSON.stringify({error:'Address could not be found.'}),{status:400}));
+    if(url==='/api/geocode')return Promise.resolve(new Response(JSON.stringify({latitude:61.2181,longitude:-149.9003,matched_address:'Public test fixture',planning_location:{locality:'Anchorage',region:'AK'}}),{status:200}));
+    if(url==='/api/snap-retailers')return Promise.resolve(new Response(JSON.stringify({retailers:Array.from({length:window.fixtureCount},(_,i)=>({record_id:'fixture-'+i,store_name:'Fixture store '+(i+1),city:'Anchorage',state:'AK',street_address:'Test street',distance_miles:i+1}))}),{status:200}));
+    return window.realFetch(url,opts);
+  }`);
+  for(const count of [0,1,2]) {
+    await evaluate(`window.fixtureCount=${count}`);await fill({address:'Public test fixture'});await click('#address-button');
+    check(await evaluate(`document.querySelectorAll('[name=snap_store]').length===${count} && !document.querySelector('#snap-build-basket') && !NutriCartStore.get()`),'Fixture '+count+' results require explicit choice');
+    if(count) {await click('[name=snap_store]');check(await evaluate("!!NutriCartStore.get() && !!document.querySelector('#snap-build-basket')"),'Fixture '+count+' selection enables continuation');}
+  }
+  check(await evaluate("!document.querySelector('#detected-location').hidden && document.querySelector('#snap-planning-location').textContent==='Anchorage, AK'"),'Manual address shows actual resolved location confirmation');
+  await evaluate('window.fixtureGeocodeFail=true');await fill({address:'Invalid test address'});await click('#address-button');
+  check(await evaluate("document.querySelector('#detected-location').hidden && !NutriCartStore.get() && !document.querySelector('#snap-build-basket') && document.querySelector('#status').textContent.includes('could not')"),'Failed geocoding clears success and selected retailer');
+  await evaluate('window.fixtureGeocodeFail=false');await fill({address:'Public test fixture'});await click('#address-button');await click('[name=snap_store]');
+  await click('.radius-options > summary');await click('[data-radius="10"]');
+  check(await evaluate("!NutriCartStore.get() && !document.querySelector('#snap-build-basket')"),'Radius search clears selected store');
+  await click('[data-radius="5"]');await click('.radius-options > summary');
+  await click('[name=snap_store]');await click('#planner-tab');await click('#snap-tab');
+  check(await evaluate("!!NutriCartStore.get() && document.querySelector('[name=snap_store]').checked"),'Navigating back retains the chosen store');
+  await click('#new-location');check(await evaluate("!NutriCartStore.get() && !NutriCartLocation.get()"),'New location clears selection and planning location');
+  check(await evaluate("document.querySelector('#detected-location').hidden && !document.querySelector('#snap-build-basket')"),'New Location hides confirmation and removes planning button');
+  await cdp('Browser.setPermission',{permission:{name:'geolocation'},setting:'denied',origin:url});
+  await click('#location-button');
+  check(await evaluate("document.querySelector('#detected-location').hidden && document.querySelector('#status').textContent.length>0 && !document.querySelector('#location-button').disabled"),'Denied geolocation shows a usable error without success');
+  await cdp('Browser.grantPermissions',{origin:url,permissions:['geolocation']});
+  await cdp('Emulation.setGeolocationOverride',{latitude:61.2181,longitude:-149.9003,accuracy:50});
+  await evaluate(`window.cardinalityFetch=window.fetch;window.fetch=(url,opts)=>url==='/api/reverse-geocode'?Promise.resolve(new Response(JSON.stringify({matched_address:null,planning_location:null}),{status:200})):window.cardinalityFetch(url,opts)`);
+  await click('#location-button');
+  check(await evaluate("document.querySelector('#detected-location').hidden && !NutriCartLocation.get() && document.querySelector('#status').textContent.includes('could not be resolved')"),'Unresolved device locality stays gated with visible address instruction');
+  await evaluate('window.fetch=window.realFetch');
   await cdp('Browser.grantPermissions',{origin:url,permissions:['geolocation']});
   await cdp('Emulation.setGeolocationOverride',{latitude:61.2181,longitude:-149.9003,accuracy:50});
   await click('#location-button');
-  await until(()=>evaluate("!document.querySelector('#location-button').disabled && !!NutriCartLocation.get() && !document.querySelector('#snap-build-basket').hidden"),'current location with real SNAP response',90000);
-  check(true,'Current location responds and resolves a planning location (emulated public test position)');
+  await until(()=>evaluate("!document.querySelector('#location-button').disabled && !!NutriCartLocation.get() && document.querySelectorAll('[name=snap_store]').length>0"),'current location with real SNAP response',90000);
+  check(await evaluate("!document.querySelector('#detected-location').hidden && document.querySelector('#snap-planning-location').textContent.length>0"),'Device location shows resolved confirmation using real reverse lookup');
   // Use the real address endpoint and store lookup. This is a public test address.
   await fill({address:'142 W Fifth Ave, Anchorage, AK 99501'});await click('#address-button');
-  await until(()=>evaluate("!document.querySelector('#snap-build-basket').hidden && !document.querySelector('#address-button').disabled"),'real SNAP results',90000);
+  await until(()=>evaluate("document.querySelectorAll('[name=snap_store]').length>0 && !document.querySelector('#address-button').disabled"),'real SNAP results',90000);
+  check(await evaluate("document.querySelectorAll('.store-card').length>1 && document.querySelectorAll('.store-card').length===document.querySelectorAll('[name=snap_store]').length"),'Real USDA results each have a radio control');
+  check(await evaluate("!document.querySelector('#snap-build-basket') && !NutriCartStore.get() && !document.querySelector('#snap-plan-transition')"),'No planning button or bottom panel before store selection');
+  await click('#planner-tab');check(await evaluate("!document.querySelector('#planner-form').hidden"),'Valid location permits direct planner without selecting store');await click('#snap-tab');
+  await click('.store-card p');
+  check(await evaluate("document.querySelector('.store-card').contains(document.querySelector('#snap-build-basket')) && document.querySelectorAll('#snap-build-basket').length===1 && document.querySelector('[name=snap_store]').checked"),'Clicking card details selects it and places one button inside');
+  if(await evaluate("!document.querySelector('#show-more').hidden")) {
+    await evaluate("window.chosenBeforeMore=NutriCartStore.get();document.querySelector('#show-more').scrollIntoView({block:'center',behavior:'instant'})");await delay(200);
+    const beforeMore=await evaluate('window.scrollY');
+    await evaluate("document.querySelector('#show-more').click()");await delay(300);
+    check(await evaluate("JSON.stringify(NutriCartStore.get())===JSON.stringify(window.chosenBeforeMore) && document.querySelector('.store-card.is-selected').contains(document.querySelector('#snap-build-basket'))"),'Show More preserves selection and in-card action');
+    check(Math.abs(await evaluate('window.scrollY')-beforeMore)<3,'Show More preserves scroll position');
+  }
+  while(await evaluate("!document.querySelector('#show-more').hidden")) await click('#show-more');
+  await evaluate("document.querySelector('[name=snap_store]').focus()");
+  await cdp('Input.dispatchKeyEvent',{type:'keyDown',key:'ArrowDown',code:'ArrowDown',windowsVirtualKeyCode:40});await cdp('Input.dispatchKeyEvent',{type:'keyUp',key:'ArrowDown',code:'ArrowDown',windowsVirtualKeyCode:40});
+  check(await evaluate("document.querySelectorAll('[name=snap_store]')[1].checked && document.querySelectorAll('.store-card.is-selected').length===1 && document.querySelectorAll('.store-card')[1].contains(document.querySelector('#snap-build-basket')) && !document.querySelector('.store-card').querySelector('button')"),'Keyboard selection moves the single action to the new card');
+  const actualDom=await evaluate("(()=>{const cards=[...document.querySelectorAll('.store-card')],button=document.querySelector('#snap-build-basket');return {cardCount:cards.length,buttonCount:document.querySelectorAll('#snap-build-basket').length,inSelectedCard:document.querySelector('.store-card.is-selected').contains(button),bottomPanel:!!document.querySelector('#snap-plan-transition'),radiosVisible:[...document.querySelectorAll('[name=snap_store]')].every(n=>n.getBoundingClientRect().width>0)}})()");
+  check(actualDom.inSelectedCard && !actualDom.bottomPanel && actualDom.radiosVisible && actualDom.buttonCount===1,'Live DOM contains one action only inside the selected retailer');
+  await writeFile(path.join(artifacts,'localhost-store-dom.json'),JSON.stringify({url,...actualDom},null,2));
+  check(await evaluate("document.querySelector('#results-title').textContent==='Select a nearby SNAP-authorized retailer' && !document.querySelector('.locator img[src*=usda]') && document.querySelector('.snap-source-attribution').textContent.includes('Store inventory and prices are not verified.')"),'New selection instruction and factual USDA attribution without logo');
+  for(const width of [1440,390,320]) {
+    await cdp('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:width<=390});
+    await evaluate("document.querySelector('.store-card.is-selected').scrollIntoView({block:'center',behavior:'instant'})");await delay(250);
+    check(await evaluate("(()=>{const a=document.querySelector('.store-card.is-selected').getBoundingClientRect(),b=document.querySelector('#snap-build-basket').getBoundingClientRect();return b.left>=a.left && b.right<=a.right && b.top>=a.top && b.bottom<=a.bottom})()"),'Build button fits inside selected card at '+width);
+    const shot=await cdp('Page.captureScreenshot',{format:'png'});await writeFile(path.join(artifacts,'selected-store-'+width+'.png'),Buffer.from(shot.data,'base64'));
+  }
+  await layout('.locator','store-results');
+  await cdp('Emulation.setDeviceMetricsOverride',{width:390,height:1000,deviceScaleFactor:1,mobile:true});
+  await evaluate("document.querySelector('[name=snap_store]').scrollIntoView({block:'center',behavior:'instant'})");await delay(200);
+  const storeTouch=await evaluate("(()=>{const r=document.querySelector('[name=snap_store]').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()");
+  await cdp('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[storeTouch]});await cdp('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await delay(200);
+  check(await evaluate("document.querySelector('[name=snap_store]').checked"),'Mobile touch changes the selected store');
+  await cdp('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
   await click('#snap-build-basket');
   check(await evaluate("document.querySelector('#planner-location-gate').hidden && !document.querySelector('#change-planning-location').hidden && !document.querySelector('#planner-form').hidden"),'Valid location reveals form and subtle change action');
   await layout('#planner-view','planner-before');
@@ -221,37 +337,55 @@ try {
   await generate('vegan',500.45);check(await evaluate("window.task16Plan.result.groceries.every(p=>p.product_id.startsWith('demo-')) && document.querySelector('#grocery-list').textContent.length>0"),'Independent demo products only');check(await evaluate("document.querySelector('#receipt-price-source').textContent.includes('Example grocery prices')"),'Synthetic price disclosure');await layout('#planner-view','vegan-basket');
   await click('#edit-plan');check(await evaluate("!document.querySelector('#planner-form').hidden && document.querySelector('#budget').value==='500.45'"),'Edit retains original form inputs');
   await generate('vegetarian',500.45);
+  await click('#edit-plan');await click('input[name=diet][value=pescatarian]');await click('#include-fish');
+  await generate('pescatarian',25);
+  check(await evaluate("window.task16Plan.context.include_fish && window.task16Plan.result.groceries.some(p=>p.product_id==='demo-salmon')"),'Requested fish included in genuine Pescatarian basket');
+  await click('#edit-plan');check(await evaluate("document.querySelector('#include-fish').checked"),'Edit preserves explicit fish preference');
+  await generate('pescatarian',25);
   await click('#alternative-plan');await until(()=>evaluate("document.querySelector('#grocery-plan-loader').hidden && !document.querySelector('#alternative-plan').disabled"),'alternative complete',120000);
   check(await evaluate("!document.querySelector('#plan-results').hidden && document.querySelector('#plan-results-title').textContent==='Your Grocery Basket' && document.querySelector('#planner-essentials').getClientRects().length===0"),'Alternative keeps single result heading');
   await click('#open-meal-from-plan');await until(()=>evaluate("!document.querySelector('#meal-plan-results').hidden"),'real meals',60000);
+  check(await evaluate("!document.querySelector('#meal-source-summary').textContent.includes(window.task16Plan.context.location.locality) && !!window.task16Plan.context.selected_store"),'Meal summary omits locality while plan retains store context');
   await layout('#meal-plan-view','generated-meals');
   check(await evaluate("document.querySelectorAll('#meal-plan-view h1').length===1 && document.querySelector('#meal-open-budget').textContent==='Track My Shopping'"),'Generated meals retain explicit shopping action');
   await click('#meal-open-budget');
   await layout('#shopping-budget-view','shopping');
-  check(await evaluate("!document.querySelector('#view-shopping-list').hidden && document.querySelector('#purchase-form h2').textContent==='Record What You Bought'"),'Purchase entry and shopping link visible');
-  await fill({'purchase-item':'Regression groceries','purchase-cost':'3.50'});
-  await evaluate("document.querySelector('#view-shopping-list').focus()");
-  await cdp('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13,text:'\r',unmodifiedText:'\r'});await cdp('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});await delay(700);
-  check(await evaluate("document.activeElement.id==='shopping-list-panel' && document.querySelector('#purchase-cost').value==='3.50'"),'Keyboard list link moves focus and preserves purchase input');
-  await cdp('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
-  await click('#view-shopping-list');
-  check(await evaluate("document.activeElement.id==='shopping-list-panel' && document.querySelector('#shopping-list-panel').getBoundingClientRect().top<innerHeight"),'Reduced-motion list link reaches actual list');
-  await cdp('Emulation.setDeviceMetricsOverride',{width:390,height:1000,deviceScaleFactor:1,mobile:true});
-  await evaluate("document.querySelector('#view-shopping-list').scrollIntoView({behavior:'instant',block:'center'})");await delay(200);
-  const touch=await evaluate("(()=>{const r=document.querySelector('#view-shopping-list').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()");
-  await cdp('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[touch]});await cdp('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await delay(300);
-  check(await evaluate("document.activeElement.id==='shopping-list-panel'"),'Mobile touch list navigation');
+  for(const width of [1440,390,320]) {
+    await cdp('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:width<=390});await delay(200);
+    check(await evaluate(`(()=>{const b=document.querySelector('#budget-balance-card').getBoundingClientRect(),l=document.querySelector('#shopping-list-panel').getBoundingClientRect();return ${width}>850 ? Math.abs(b.top-l.top)<2 && l.left>b.right : l.top>=b.bottom && l.top-b.bottom<25})()`),'Budget/list adjacency at '+width);
+    await evaluate("document.querySelector('#shopping-budget-view').scrollIntoView({block:'start',behavior:'instant'})");await delay(200);
+    const shot=await cdp('Page.captureScreenshot',{format:'png'});await writeFile(path.join(artifacts,'shopping-top-'+width+'.png'),Buffer.from(shot.data,'base64'));
+  }
+  await cdp('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+  check(await evaluate("[...document.querySelectorAll('.shopping-list-quantity')].every(n=>n.textContent.includes('\\u00b7') && !n.textContent.includes(' ? '))"),'Shopping separator renders correctly');
+  check(await evaluate("!document.querySelector('#additional-purchases').open && document.querySelector('#shopping-list-title').textContent==='Your Shopping List'"),'List is primary; manual purchases collapsed below');
   const state=async()=>{const value=await evaluate("new Promise(resolve=>{document.addEventListener('nutricart:budget-state',e=>resolve(e.detail),{once:true});document.dispatchEvent(new Event('nutricart:request-budget-state'))})");await evaluate("if(!document.querySelector('#save-dialog').hidden) document.querySelector('#save-cancel').click()");return value;};
-  const before=await state();
-  await click('#select-all-shopping');const collected=await state();
-  check(JSON.stringify(before.purchases)===JSON.stringify(collected.purchases),'Collecting does not record purchases');
-  await click('#add-purchase');const bought=await state();
-  check(bought.purchases.length===before.purchases.length+1,'Explicit purchase recorded');
+  const before=await state();check(before.purchases.length===0,'Displaying a basket does not spend');
+  await click('[data-shopping-check]');const estimated=await state();
+  check(estimated.purchases.length===1 && estimated.purchases[0].estimated && estimated.purchases[0].costCents===estimated.shoppingItems[0].estimatedCents,'Mark purchased deducts the basket line estimate once');
+  await evaluate("document.dispatchEvent(new CustomEvent('nutricart:plan-updated',{detail:{...window.task16Plan,plannedItems:window.task16Plan.result.groceries}}))");
+  check((await state()).purchases.length===1 && await evaluate("document.querySelector('[data-shopping-check]').checked"),'Rerender preserves linked purchase without duplicates');
+  await click('[data-shopping-add-price]');
+  await evaluate("const f=document.querySelector('[data-edit-purchase-form]');f.elements.cost.value='4.25'");
+  await click('[data-edit-purchase-form] button[type=submit]');const edited=await state();
+  check(edited.purchases[0].costCents===425 && !edited.purchases[0].estimated,'Edited checkout price replaces estimate');
+  dialogAnswer=false;await click('[data-shopping-check]');
+  check((await state()).purchases.length===1,'Cancel undo preserves edited purchase');
+  dialogAnswer=true;await click('[data-shopping-check]');check((await state()).purchases.length===0,'Confirmed uncheck reverses edited purchase');
+  await click('[data-shopping-check]');await click('[data-shopping-check]');check((await state()).purchases.length===0,'Unedited estimate reverses directly');
+  await cdp('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
+  await cdp('Emulation.setDeviceMetricsOverride',{width:390,height:1000,deviceScaleFactor:1,mobile:true});
+  await evaluate("document.querySelector('[data-shopping-check]').scrollIntoView({behavior:'instant',block:'center'})");await delay(200);
+  const touch=await evaluate("(()=>{const r=document.querySelector('[data-shopping-check]').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()");
+  await cdp('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[touch]});await cdp('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await delay(300);
+  check((await state()).purchases.length===1,'Mobile touch marks purchased');
+  await click('#select-all-shopping');const all=await state();
+  check(all.purchases.length===all.shoppingItems.length,'Confirmed mark all counts each listed item once');
+  await click('#additional-purchases > summary');await fill({'purchase-item':'Regression groceries','purchase-cost':'3.50'});await click('#add-purchase');const bought=await state();
+  check(bought.purchases.length===all.purchases.length+1 && bought.purchases.at(-1).costCents===350,'Manual extra purchase recorded independently');
   const storedBeforeClear=await evaluate("document.querySelector('#purchase-log').textContent");
   dialogAnswer=false;await click('#clear-purchases');
-  check(dialogSeen>=3 && await evaluate("document.querySelector('#purchase-log').textContent")===storedBeforeClear,'Clearing purchases always asks and cancel preserves them');
-
-  check(bought.startingBudgetCents===before.startingBudgetCents && bought.purchases.at(-1).costCents===350,'Purchase updates spending by exactly $3.50');
+  check(await evaluate("document.querySelector('#purchase-log').textContent")===storedBeforeClear,'Clearing purchases asks and cancel preserves them');
   await click('#planner-tab');
   // Capture the same payload consumed by the existing save/restore UI.
   const saved=await evaluate("window.task16Plan");
@@ -262,6 +396,11 @@ try {
   check(JSON.stringify(restored.purchases)===JSON.stringify(bought.purchases),'Restoring basket preserves purchases');
   check(await evaluate("fetch('/api/account/session').then(r=>r.json()).then(r=>!r.authenticated)"),'Guest session works');
   check(await evaluate("fetch('/api/saved-items').then(r=>r.status===503)"),'Cloud save explicitly unavailable');
+  await evaluate(`document.dispatchEvent(new CustomEvent('nutricart:open-saved-shopping',{detail:{id:'test-session',data:${JSON.stringify(restored)}}}))`);await delay(600);
+  check(JSON.stringify((await state()).purchases)===JSON.stringify(restored.purchases),'Saved shopping restoration preserves exact purchase ledger');
+  check(await evaluate("[...document.querySelectorAll('[data-shopping-check]')].every(n=>n.checked)"),'Restored purchase links keep list checked');
+  await click('#meal-plan-tab');await click('#shopping-budget-tab');
+  check(JSON.stringify((await state()).purchases)===JSON.stringify(restored.purchases),'Returning tabs retains restored shopping session');
   const persisted=restored;
   const remaining=await evaluate("document.querySelector('#budget-remaining').textContent");
   check(remaining.includes(((persisted.startingBudgetCents-persisted.purchases.reduce((sum,p)=>sum+p.costCents,0))/100).toFixed(2)),'Displayed remaining balance matches purchase arithmetic');
@@ -288,8 +427,8 @@ try {
   check(await evaluate("[...document.querySelectorAll('#logo-review svg')].map(s=>s.getBoundingClientRect().width).join(',')==='16,32,48,128'"),'SVG rendered at 16, 32, 48 and 128 pixels');
   await evaluate("document.querySelector('#logo-review').remove()");
   check(assets.length>0 && assets.every(a=>a.status===200),'All static assets load');
-  check(browserErrors.length===0,'Zero console errors');
   await writeFile(path.join(artifacts,'results.json'),JSON.stringify({checks,layouts,browserErrors},null,2));
+  check(browserErrors.length===0,'Zero console errors');
   console.log('CHECKS',checks.length,'LAYOUTS',layouts.length);
 } catch (error) {
   await writeFile(path.join(artifacts, "failure.txt"), String(error.stack || error));

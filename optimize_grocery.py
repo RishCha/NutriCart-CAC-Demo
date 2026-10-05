@@ -231,6 +231,10 @@ def build_model(products: list[dict], values: dict, excluded_ids: set[str] | Non
     total_cost = pulp.lpSum(prices[i] * quantities[i] for i in indexes)
     totals = {n: pulp.lpSum(amounts[n][i] * quantities[i] for i in indexes) for n in NUTRIENTS}
     model += total_cost <= values["budget"]
+    # An explicit preference is a constraint, not a change to objective weights.
+    if values.get("include_fish"):
+        model += pulp.lpSum(selected[i] for i in indexes
+                            if products[i].get("food_profile") in SEAFOOD_PROFILES) >= 1
 
     profile_groups, category_groups = defaultdict(list), defaultdict(list)
     for i, product in enumerate(products):
