@@ -28,6 +28,21 @@ class VercelDemoTests(unittest.TestCase):
         self.addCleanup(self.store.stop)
         self.client = app.app.test_client()
 
+    def test_analytics_requires_vercel_and_nonlocal_host(self):
+        for vercel, host, enabled in (("", "https://demo.example", False), ("1", "https://demo.example", True), ("1", "http://localhost", False), ("1", "http://127.0.0.1:5000", False), ("1", "http://[::1]:5000", False)):
+            with self.subTest(vercel=vercel, host=host), patch.dict(os.environ, VERCEL=vercel):
+                page = self.client.get("/", base_url=host).text
+                self.assertEqual(page.count('src="/_vercel/insights/script.js"'), int(enabled))
+                self.assertEqual("window.vaq" in page, enabled)
+                if enabled:
+                    self.assertIn('<script defer src="/_vercel/insights/script.js"></script>', page)
+                    self.assertNotIn("va('event'", page)
+
+    def test_password_reset_omits_analytics_on_vercel(self):
+        with patch.dict(os.environ, VERCEL="1"):
+            response = self.client.get("/reset-password?token=synthetic-test", base_url="https://demo.example")
+            self.assertNotIn("/_vercel/insights/script.js", response.text)
+
     def test_guest_startup_and_stale_account_cookie_never_access_database(self):
         with self.client.session_transaction() as session:
             session["user_id"] = 1
@@ -40,6 +55,29 @@ class VercelDemoTests(unittest.TestCase):
         self.assertFalse(response.json["authenticated"])
         with self.client.session_transaction() as session:
             self.assertNotIn("user_id", session)
+
+    def test_public_demo_renders_guest_account_message_without_auth_controls(self):
+        page = self.client.get("/").text
+        self.assertIn("Saved accounts aren’t available in this demo", page)
+        self.assertIn("Continue as Guest", page)
+        self.assertIn('data-accounts-enabled="false"', page)
+        for unavailable in ('id="sign-in-form"', 'id="create-account-form"',
+                            'id="forgot-password-form"', 'id="sign-in-email"',
+                            'id="sign-in-password"'):
+            self.assertNotIn(unavailable, page)
+        for save_control in ("save-grocery-plan", "save-meal-plan", "save-shopping-list"):
+            self.assertRegex(page, rf'id="{save_control}"[^>]* hidden')
+
+    def test_account_enabled_mode_preserves_authentication_forms(self):
+        with patch.dict(app.app.config, ACCOUNTS_ENABLED=True):
+            page = self.client.get("/").text
+        self.assertIn('data-accounts-enabled="true"', page)
+        self.assertIn('id="sign-in-form"', page)
+        self.assertIn('id="create-account-form"', page)
+        self.assertIn('id="forgot-password-form"', page)
+        self.assertNotIn('id="demo-account-panel"', page)
+        for save_control in ("save-grocery-plan", "save-meal-plan", "save-shopping-list"):
+            self.assertNotRegex(page, rf'id="{save_control}"[^>]* hidden')
 
     def test_account_and_saved_content_endpoints_fail_honestly_before_storage(self):
         for method, endpoint in (("post", "/api/account/register"), ("post", "/api/account/login"),
@@ -127,3 +165,16 @@ print('DEMO_STARTUP_OK')
         result = subprocess.run([sys.executable, "-B", "-c", code], cwd=ROOT, env=env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("DEMO_STARTUP_OK", result.stdout)
+
+    def test_non_vercel_runtime_keeps_accounts_enabled(self):
+        env = {key: os.environ[key] for key in ("SYSTEMROOT", "WINDIR", "PATH", "TEMP", "TMP") if key in os.environ}
+        env.update(PYTHON_DOTENV_DISABLED="1", FLASK_SKIP_DOTENV="1")
+        result = subprocess.run(
+            [sys.executable, "-B", "-c", "import app; assert app.app.config['ACCOUNTS_ENABLED']; print('LOCAL_ACCOUNTS_OK')"],
+            cwd=ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("LOCAL_ACCOUNTS_OK", result.stdout)

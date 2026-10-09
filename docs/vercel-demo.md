@@ -1,6 +1,6 @@
 # Independent Vercel CAC release
 
-Root app.py exports Flask app. Use Python 3.13 and requirements.txt. All public-release runs select data/demo, even if a local-catalog mode is requested. Missing demo files fail without fallback. Account/cloud-save/recovery operations are unavailable locally and on Vercel. No SQLite persistence is promised. Example groceries cannot be compared against real retailers.
+Root app.py exports Flask app. Use Python 3.13 and requirements.txt. All public-release runs select data/demo, even if a local-catalog mode is requested. Missing demo files fail without fallback. Account/cloud-save/recovery operations are unavailable on the hosted Vercel demo because its filesystem cannot provide durable SQLite persistence. Non-Vercel local runs retain the existing account features with their configured local database. No hosted SQLite persistence is promised. Example groceries cannot be compared against real retailers.
 
 Vercel runs `python -B build_vercel.py`, validating demo data and copying the thirteen reviewed static files to generated public/static. Do not commit generated copies, instance artifacts, or virtual environments. Root data files and private runtime files are excluded by .vercelignore and function configuration. The NutriCart SVG is included through Flask templates, not an external asset path.
 
@@ -27,3 +27,7 @@ CSRF, same-origin checks, bounded JSON, fixed sender/recipient and a signed-sess
 SMTP reference: https://docs.python.org/3/library/smtplib.html
 
 Vercel SMTP support: https://vercel.com/kb/guide/serverless-functions-and-smtp (port 25 is blocked; feedback uses 465/587).
+
+## Web Analytics
+
+Enable Web Analytics in the Vercel project dashboard before deploying this change. The main Flask template uses the plain HTML window.va queue and deferred /_vercel/insights/script.js endpoint, served by Vercel rather than Flask. No npm dependency or Node build is needed. The snippet is rendered only when VERCEL=1 and the request host is not loopback. Password-reset pages omit it. Only standard page views are enabled; tool tabs and shopping actions do not emit custom events. Local tests verify rendering and application compatibility, not hosted data collection. Confirm the script and page-view requests in the deployed browser after a separately authorized deployment. Official setup: https://vercel.com/docs/analytics/quickstart.

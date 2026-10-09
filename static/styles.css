@@ -363,6 +363,11 @@ input:disabled { cursor: not-allowed; opacity: .58; background: #edf1ef; }
 .auth-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; padding: 4px; border-radius: 12px; background: #edf3ef; }
 .auth-tabs button { border: 0; background: transparent; }.auth-tabs button[aria-selected="true"] { background: white; color: var(--green-dark); box-shadow: 0 2px 9px #17352a15; }
 .account-form { display: grid; gap: 14px; margin-top: 20px; }.account-form h4 { margin-bottom: 0; }.account-form button[type="submit"] { justify-self: start; }
+.demo-account-card { margin-top: 8px; padding: clamp(22px, 4vw, 32px); border: 1px solid var(--line); border-radius: 18px; background: #f2f6ee; }
+.demo-account-card h3 { margin: 0; color: var(--green-dark); font-size: clamp(1.35rem, 3vw, 1.7rem); line-height: 1.2; }
+.demo-account-card p { margin: 12px 0 22px; color: var(--muted); line-height: 1.6; }
+.demo-account-card .primary { min-height: 48px; }
+@media (max-width: 700px) { .demo-account-card .primary { width: 100%; } }
 .password-field { display: flex; align-items: stretch; margin-top: 6px; border: 1px solid #94a99f; border-radius: 8px; overflow: hidden; }.password-field input { margin: 0; border: 0; }.password-toggle { min-width: 64px; border: 0; border-left: 1px solid var(--line); border-radius: 0; background: #f3f7f3; color: var(--green-dark); }
 .account-welcome { display: grid; padding-bottom: 18px; border-bottom: 1px solid var(--line); }.account-welcome p { margin: 0; color: var(--muted); }.account-welcome strong { font-size: 1.35rem; }.account-welcome span { color: var(--muted); }
 .account-nav { display: flex; flex-wrap: wrap; gap: 5px; margin: 16px 0 24px; }.account-nav button { padding-inline: 10px; border: 0; background: transparent; color: var(--green-dark); }
@@ -1145,6 +1150,7 @@ body { overflow-x: hidden; background: var(--cream); background-image: radial-gr
 @media (max-width: 700px) {
   .account-button { padding-inline: 9px; }
   .account-drawer { padding: 16px; }
+  .account-drawer .settings-header { top: -16px; margin: -16px -16px 16px; }
   .account-nav { grid-template-columns: 1fr; }
   .saved-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .saved-item-actions { display: grid; grid-template-columns: repeat(3, 1fr); }
@@ -1790,4 +1796,29 @@ html { scroll-padding-top: var(--header-offset, 190px); }
   #results .store-card { padding: 16px; }
   .store-build-button { width: 100%; }
   .results-heading { flex-wrap: wrap; }
+}
+
+/* Desktop grouping; preserve the existing phone and tablet presentation. */
+@media (min-width: 1024px) {
+  .app-view { max-width: 1160px; margin-inline: auto; }
+  #planner-view .planner-card { max-width: 900px; margin-inline: auto; box-shadow: 0 4px 18px #17352a08; }
+  #planner-view .planner-heading { padding: 22px 28px 12px; }
+  #planner-view .planner-heading > h2 { margin-inline: -28px; padding-inline: 28px; }
+  #planner-view #planner-form { max-width: none; padding: 0 28px 24px; }
+  #planner-view .form-sections > .panel { padding: 20px 0; }
+  #planner-view .section-heading { margin-bottom: 12px; }
+  #planner-view .feasibility-fields { gap: 16px; align-items: start; }
+  #planner-view .feasibility-fields input { min-height: 48px; }
+  #planner-view .feasibility-fields .input-prefix input { min-height: 46px; }
+  #planner-view #diet-options { gap: 12px; margin-top: 0; }
+  #planner-view #diet-options label { display: flex; align-items: center; min-height: 52px; padding: 10px 12px; }
+  #planner-view #diet-options input { flex: 0 0 auto; }
+  #planner-view .form-sections > .planner-options { padding: 0; }
+  #planner-view .planner-options > summary { justify-content: flex-start; gap: 20px; padding: 16px 0; }
+  #planner-view .planner-options > summary span:last-child { flex-shrink: 0; }
+  #planner-view .planner-options-content { margin: 0; padding: 18px 0; }
+  #planner-view .planner-actions { display: flex; flex-direction: column; align-items: center; gap: 6px; margin-top: 16px; padding-top: 20px; border-top: 1px solid var(--line); }
+  #planner-view .planner-actions #review-plan { margin: 0; width: min(100%, 340px); min-height: 54px; padding: 12px 20px; white-space: normal; border-radius: 14px; box-shadow: 0 3px 10px #17352a18; }
+  #planner-view .planner-actions #review-settings { min-height: 44px; margin: 0; }
+  .site-footer { max-width: 1040px; margin: 40px auto 20px; padding: 24px 28px; gap: 16px 28px; }
 }

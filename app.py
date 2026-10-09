@@ -54,8 +54,8 @@ class _NutriCartSessionInterface(SecureCookieSessionInterface):
 
 app = Flask(__name__)
 app.config.update(
-    # Vercel has no durable local SQLite storage. Keep the public demo guest-only.
-    ACCOUNTS_ENABLED=False,
+    # Vercel has no durable local SQLite storage. Keep only that public demo guest-only.
+    ACCOUNTS_ENABLED=os.getenv("VERCEL") != "1",
     SECRET_KEY=os.getenv("FLASK_SECRET_KEY") or secrets.token_hex(32),
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
@@ -79,6 +79,9 @@ app.session_interface = _NutriCartSessionInterface()
 def inject_template_globals():
     return {
         "current_year": datetime.now(timezone.utc).year,
+        "accounts_enabled": app.config["ACCOUNTS_ENABLED"],
+        "vercel_analytics_enabled": os.getenv("VERCEL") == "1"
+        and (urlsplit(request.host_url).hostname or "").lower() not in {"localhost", "127.0.0.1", "::1"},
     }
 
 DIETS = {"omnivore", "vegetarian", "vegan", "pescatarian"}
@@ -620,6 +623,7 @@ def index():
     return render_template(
         "index.html",
         account_user=_current_account_user(),
+        accounts_enabled=app.config["ACCOUNTS_ENABLED"],
         current_year=datetime.now(timezone.utc).year,
     )
 

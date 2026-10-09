@@ -62,7 +62,7 @@ async function freePort() {
 function cdp(method, params = {}) {
   const id = ++nextId;
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => { pending.delete(id); reject(new Error(`CDP timeout: ${method}`)); }, 30000);
+    const timer = setTimeout(() => { pending.delete(id); reject(new Error(`CDP timeout: ${method}`)); }, 90000);
     pending.set(id, {resolve: value => { clearTimeout(timer); resolve(value); }, reject: error => { clearTimeout(timer); reject(error); }});
     socket.send(JSON.stringify({id, method, params}));
   });
@@ -83,7 +83,7 @@ try {
   if (!externalUrl) {
   server = spawn(pythonPath, ["-B", "-m", "flask", "--app", "app", "run", "--host", "127.0.0.1", "--port", String(port), "--no-reload"], {
     cwd: root, windowsHide: true,
-    env: {...process.env, NUTRICART_CATALOG_MODE: "demo", NUTRICART_DATABASE: path.join(runtime, "accounts.db"), FLASK_DEBUG: "0", PYTHONDONTWRITEBYTECODE: "1",
+    env: {...process.env, VERCEL: "1", NUTRICART_CATALOG_MODE: "demo", NUTRICART_DATABASE: path.join(runtime, "accounts.db"), FLASK_DEBUG: "0", PYTHONDONTWRITEBYTECODE: "1",
       PYTHON_DOTENV_DISABLED: "1", FLASK_SKIP_DOTENV: "1", NUTRICART_FEEDBACK_TO: ""},
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -142,13 +142,22 @@ try {
 
   const layouts=[];
   async function layout(selector,name){
-    for(const width of [1440,1280,768,390,320]) for(const size of ['normal','large','extra-large']) {
-      await cdp('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:width<=390});
+    for(const [width,height] of [[1920,1080],[1440,900],[1366,768],[1280,800],[1024,768],[768,1024],[390,844],[320,740]]) for(const size of ['normal','large','extra-large']) {
+      await cdp('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<=390});
       await evaluate(`NutriCartSettings.setSetting('textSize',${JSON.stringify(size)})`);await delay(100);
       await evaluate(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'start',behavior:'instant'})`);await delay(120);
       const state=await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});return {overflow:document.documentElement.scrollWidth>innerWidth+1,clipped:[...n.querySelectorAll('button,input,select')].filter(x=>x.getClientRects().length && ((x.tagName!=='INPUT' && x.scrollWidth>x.clientWidth+3) || x.getBoundingClientRect().right>innerWidth+1)).map(x=>x.id)}})()`);
       if(name==='store-results') {
         assert(await evaluate("(()=>{const c=document.querySelector('.store-card.is-selected').getBoundingClientRect(),b=document.querySelector('#snap-build-basket').getBoundingClientRect();return b.left>=c.left && b.right<=c.right && b.bottom<=c.bottom && getComputedStyle(document.querySelector('[name=snap_store]')).visibility==='visible'})()"),JSON.stringify({width,size}));
+      }
+      if(name==='planner-before' && width>=1024) {
+        const grouping=await evaluate("(()=>{const r=n=>document.querySelector(n).getBoundingClientRect(),c=r('.planner-card'),b=r('#review-plan'),s=r('#review-settings'),fields=['.feasibility-fields .input-prefix','#people','#days'].map(r);return {card:c.width,center:Math.abs(c.x+c.width/2-document.documentElement.clientWidth/2),button:b.width,actionCenter:Math.abs(b.x+b.width/2-c.x-c.width/2),secondaryBelow:s.top>=b.bottom,fieldsAligned:Math.max(...fields.map(r=>r.top))-Math.min(...fields.map(r=>r.top))<2,heights:fields.map(r=>r.height)}})()");
+        assert(grouping.card<=901 && grouping.center<2 && grouping.button<=341 && grouping.actionCenter<2 && grouping.secondaryBelow && grouping.fieldsAligned && Math.max(...grouping.heights)-Math.min(...grouping.heights)<2,JSON.stringify({width,size,grouping}));
+      }
+      if(name==='planner-before' && size==='normal') {
+        const metrics=await cdp('Page.getLayoutMetrics');
+        const shot=await cdp('Page.captureScreenshot',{format:'png',captureBeyondViewport:true,clip:{x:0,y:0,width,height:metrics.cssContentSize.height,scale:1}});
+        await writeFile(path.join(artifacts,'desktop-polish-planner-'+width+'.png'),Buffer.from(shot.data,'base64'));
       }
       if(name==='shopping') {
         const order=await evaluate(`(()=>{const b=document.querySelector('#budget-balance-card').getBoundingClientRect(),l=document.querySelector('#shopping-list-panel').getBoundingClientRect(),a=document.querySelector('#additional-purchases').getBoundingClientRect();return {balance:b.top,list:l.top,bottom:b.bottom,additional:a.top,listBottom:l.bottom}})()`);
@@ -162,6 +171,20 @@ try {
   await evaluate("NutriCartSettings.setSetting('cursorEffects',false);document.addEventListener('nutricart:plan-updated',e=>window.task16Plan={context:e.detail.context,result:e.detail.result})");
   check(await evaluate("document.querySelectorAll('.hero-actions button').length===1 && document.querySelector('#hero-find-snap').textContent===\"Let's get started\""),'Home unchanged');
   check(await evaluate("document.querySelector('#home-button svg') && document.querySelector('.footer-brand svg') && document.querySelector('link[rel=icon]').href.startsWith('data:image/svg+xml')"),'Original basket logo in header footer and favicon');
+  check(await evaluate("!document.querySelector('#sign-in-form') && !document.querySelector('#create-account-form') && !document.querySelector('#forgot-password-form') && [...document.querySelectorAll('#save-grocery-plan,#save-meal-plan,#save-shopping-list')].every(n=>n.hidden)"),'Public demo omits authentication forms and cloud-save prompts');
+  for(const [width,size] of [[1440,'normal'],[390,'extra-large'],[320,'extra-large']]) {
+    await cdp('Emulation.setDeviceMetricsOverride',{width,height:800,deviceScaleFactor:1,mobile:width<=390});
+    await evaluate(`NutriCartSettings.setSetting('textSize',${JSON.stringify(size)})`);await delay(100);
+    await click('#account-button');
+    const guestState=await evaluate("(()=>{const d=document.querySelector('#account-dialog'),r=d.getBoundingClientRect();return {visible:!d.hidden,focus:document.activeElement.id,bounds:[r.left,r.right,innerWidth],scroll:[d.scrollWidth,d.clientWidth],title:document.querySelector('#demo-account-title').textContent}})()");
+    check(guestState.visible && guestState.focus==='continue-as-guest' && guestState.bounds[0]>=0 && guestState.bounds[1]<=guestState.bounds[2] && guestState.scroll[0]<=guestState.scroll[1]+1 && guestState.title==="Saved accounts aren’t available in this demo",'Guest account explanation fits '+width+' '+size+' '+JSON.stringify(guestState));
+    await click('#continue-as-guest');
+    check(await evaluate("document.querySelector('#account-dialog').hidden && document.activeElement.id==='account-button'"),'Continue as Guest closes and restores focus '+width);
+  }
+  await cdp('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});await evaluate("NutriCartSettings.setSetting('textSize','normal')");
+  await click('#account-button');
+  await cdp('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});await cdp('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+  check(await evaluate("document.querySelector('#account-dialog').hidden && document.activeElement.id==='account-button'"),'Guest account panel supports Escape and focus restoration');
   check(await evaluate("!document.querySelector('#feedback-dialog').open"),'Feedback never opens automatically');
   await click('#feedback-desktop');
   check(await evaluate("document.querySelector('#feedback-title').textContent==='How was your NutriCart experience?' && document.querySelector('#feedback-form').hidden && document.querySelectorAll('#feedback-rating button').length===2"),'Feedback stage one shows only thumb choices');
@@ -426,6 +449,26 @@ try {
   const logos=await cdp('Page.captureScreenshot',{format:'png'});await writeFile(path.join(artifacts,'logo-sizes.png'),Buffer.from(logos.data,'base64'));
   check(await evaluate("[...document.querySelectorAll('#logo-review svg')].map(s=>s.getBoundingClientRect().width).join(',')==='16,32,48,128'"),'SVG rendered at 16, 32, 48 and 128 pixels');
   await evaluate("document.querySelector('#logo-review').remove()");
+  if (!externalUrl) {
+    const stopped=once(server,'exit');server.kill();await Promise.race([stopped,delay(5000)]);
+    server=spawn(pythonPath,["-B","-m","flask","--app","app","run","--host","127.0.0.1","--port",String(port),"--no-reload"],{
+      cwd:root,windowsHide:true,
+      env:{...process.env,NUTRICART_CATALOG_MODE:"demo",NUTRICART_DATABASE:path.join(runtime,"accounts.db"),FLASK_DEBUG:"0",PYTHONDONTWRITEBYTECODE:"1",PYTHON_DOTENV_DISABLED:"1",FLASK_SKIP_DOTENV:"1",NUTRICART_FEEDBACK_TO:""},
+      stdio:["ignore","pipe","pipe"],
+    });
+    server.stdout.on("data",chunk=>{serverOutput+=chunk;});server.stderr.on("data",chunk=>{serverOutput+=chunk;});
+    await until(async()=>{try{return (await localGet(url)).status===200;}catch{return false;}},"account-enabled Flask readiness");
+    await cdp('Page.navigate',{url});await until(()=>evaluate("document.readyState==='complete' && Boolean(window.NutriCartSettings)"),'account-enabled scripts');
+    check(await evaluate("document.querySelector('#account-auth-panel').dataset.accountsEnabled==='true' && document.querySelector('#sign-in-form') && document.querySelector('#create-account-form') && document.querySelector('#forgot-password-form') && !document.querySelector('#demo-account-panel') && [...document.querySelectorAll('#save-grocery-plan,#save-meal-plan,#save-shopping-list')].every(n=>!n.hidden)"),'Non-Vercel mode preserves authentication and saving controls');
+    for(const [width,size] of [[1440,'normal'],[390,'extra-large'],[320,'extra-large']]) {
+      await cdp('Emulation.setDeviceMetricsOverride',{width,height:800,deviceScaleFactor:1,mobile:width<=390});
+      await evaluate(`NutriCartSettings.setSetting('textSize',${JSON.stringify(size)})`);await delay(100);await click('#account-button');
+      const accountState=await evaluate("(()=>{const d=document.querySelector('#account-dialog'),r=d.getBoundingClientRect();return {visible:!d.hidden,focus:document.activeElement.id,bounds:[r.left,r.right,innerWidth],scroll:[d.scrollWidth,d.clientWidth]}})()");
+      check(accountState.visible && accountState.focus==='account-close' && accountState.bounds[0]>=0 && accountState.bounds[1]<=accountState.bounds[2] && accountState.scroll[0]<=accountState.scroll[1]+1,'Account form fits '+width+' '+size+' '+JSON.stringify(accountState));
+      await cdp('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});await cdp('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+      check(await evaluate("document.querySelector('#account-dialog').hidden && document.activeElement.id==='account-button'"),'Account form Escape restores focus '+width);
+    }
+  }
   check(assets.length>0 && assets.every(a=>a.status===200),'All static assets load');
   await writeFile(path.join(artifacts,'results.json'),JSON.stringify({checks,layouts,browserErrors},null,2));
   check(browserErrors.length===0,'Zero console errors');

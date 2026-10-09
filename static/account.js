@@ -10,6 +10,7 @@
   const dialog = document.querySelector("#account-dialog");
   const backdrop = document.querySelector("#account-backdrop");
   const authPanel = document.querySelector("#account-auth-panel");
+  const accountsEnabled = authPanel.dataset.accountsEnabled === "true";
   const userPanel = document.querySelector("#account-user-panel");
   const status = document.querySelector("#account-status");
   const saveDialog = document.querySelector("#save-dialog");
@@ -97,11 +98,12 @@
   function openAccount(mode = "signin") {
     closeAccountMenu();
     dialog.hidden = false; backdrop.hidden = false; document.body.classList.add("settings-open");
-    if (!user) setAuthMode(mode);
-    document.querySelector("#account-close").focus();
+    if (!user && accountsEnabled) setAuthMode(mode);
+    (accountsEnabled ? document.querySelector("#account-close") : document.querySelector("#continue-as-guest")).focus();
   }
   function closeAccount() { authRevision += 1; dialog.hidden = true; backdrop.hidden = true; document.body.classList.remove("settings-open"); accountButton.focus(); }
   function setAuthMode(mode) {
+    if (!accountsEnabled) return;
     authMode = mode;
     authRevision += 1;
     setStatus("");
@@ -291,27 +293,31 @@
   document.querySelector("#account-menu-app-settings").addEventListener("click", () => closeAccountMenu());
   document.querySelectorAll("[data-account-menu-section]").forEach(button => button.addEventListener("click", () => { const section = button.dataset.accountMenuSection; openAccount(); document.querySelector(`[data-account-section="${section}"]`).click(); }));
   document.querySelector("#account-close").addEventListener("click", closeAccount); backdrop.addEventListener("click", closeAccount);
-  document.querySelector("#sign-in-mode").addEventListener("click", () => setAuthMode("signin"));
-  document.querySelector("#create-account-mode").addEventListener("click", () => setAuthMode("create"));
-  document.querySelector("#forgot-password-mode").addEventListener("click", () => {
-    document.querySelector("#forgot-password-email").value = document.querySelector("#sign-in-email").value;
-    setAuthMode("forgot"); document.querySelector("#forgot-password-email").focus();
-  });
-  document.querySelector("#forgot-back-to-sign-in").addEventListener("click", () => { setAuthMode("signin"); document.querySelector("#sign-in-email").focus(); });
-  document.querySelector("#forgot-password-form").addEventListener("submit", async event => {
-    event.preventDefault();
-    const revision = ++authRevision;
-    const submit = event.target.querySelector('[type="submit"]');
-    submit.disabled = true; setStatus("");
-    try {
-      const data = await api("/api/account/forgot-password", {method: "POST", body: JSON.stringify({email: document.querySelector("#forgot-password-email").value})});
-      if (revision === authRevision && authMode === "forgot") setStatus(data.message);
-    } catch (error) {
-      if (revision === authRevision) setStatus(error.status ? error.message : "The request could not be sent. Please try again.", true);
-    } finally { submit.disabled = false; }
-  });
-  document.querySelector("#sign-in-form").addEventListener("submit", event => { event.preventDefault(); authenticate("/api/account/login", {email: document.querySelector("#sign-in-email").value, password: document.querySelector("#sign-in-password").value}); });
-  document.querySelector("#create-account-form").addEventListener("submit", event => { event.preventDefault(); authenticate("/api/account/register", {first_name: document.querySelector("#account-first-name").value, last_name: document.querySelector("#account-last-name").value, email: document.querySelector("#account-email").value, password: document.querySelector("#account-password").value, confirm_password: document.querySelector("#account-password-confirm").value}); });
+  if (accountsEnabled) {
+    document.querySelector("#sign-in-mode").addEventListener("click", () => setAuthMode("signin"));
+    document.querySelector("#create-account-mode").addEventListener("click", () => setAuthMode("create"));
+    document.querySelector("#forgot-password-mode").addEventListener("click", () => {
+      document.querySelector("#forgot-password-email").value = document.querySelector("#sign-in-email").value;
+      setAuthMode("forgot"); document.querySelector("#forgot-password-email").focus();
+    });
+    document.querySelector("#forgot-back-to-sign-in").addEventListener("click", () => { setAuthMode("signin"); document.querySelector("#sign-in-email").focus(); });
+    document.querySelector("#forgot-password-form").addEventListener("submit", async event => {
+      event.preventDefault();
+      const revision = ++authRevision;
+      const submit = event.target.querySelector('[type="submit"]');
+      submit.disabled = true; setStatus("");
+      try {
+        const data = await api("/api/account/forgot-password", {method: "POST", body: JSON.stringify({email: document.querySelector("#forgot-password-email").value})});
+        if (revision === authRevision && authMode === "forgot") setStatus(data.message);
+      } catch (error) {
+        if (revision === authRevision) setStatus(error.status ? error.message : "The request could not be sent. Please try again.", true);
+      } finally { submit.disabled = false; }
+    });
+    document.querySelector("#sign-in-form").addEventListener("submit", event => { event.preventDefault(); authenticate("/api/account/login", {email: document.querySelector("#sign-in-email").value, password: document.querySelector("#sign-in-password").value}); });
+    document.querySelector("#create-account-form").addEventListener("submit", event => { event.preventDefault(); authenticate("/api/account/register", {first_name: document.querySelector("#account-first-name").value, last_name: document.querySelector("#account-last-name").value, email: document.querySelector("#account-email").value, password: document.querySelector("#account-password").value, confirm_password: document.querySelector("#account-password-confirm").value}); });
+  } else {
+    document.querySelector("#continue-as-guest").addEventListener("click", closeAccount);
+  }
   async function signOut() { await api("/api/account/logout", {method: "POST"}); closeAccountMenu(); user = null; currentPlanSavedId = null; renderUser(); const save = document.querySelector("#save-grocery-plan"); save.textContent = "Save Plan"; save.disabled = false; setStatus("Signed out. Current on-screen work remains available."); }
   document.querySelector("#sign-out").addEventListener("click", signOut);
   document.querySelector("#account-menu-sign-out").addEventListener("click", signOut);

@@ -6,7 +6,7 @@
   <title>NutriCart</title>
   {% set brand_icon %}{% include "nutricart-logo.svg" %}{% endset %}
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,{{ brand_icon|urlencode }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='snap-flow-24') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='desktop-polish-28') }}">
 </head>
 <body>
   <main class="shell">
@@ -63,12 +63,20 @@
     <div id="account-backdrop" class="settings-backdrop" hidden></div>
     <aside id="account-dialog" class="account-drawer" role="dialog" aria-modal="true" aria-labelledby="account-title" hidden tabindex="-1">
       <header class="settings-header"><h2 id="account-title">Account</h2><button id="account-close" class="settings-close" type="button" aria-label="Close Account">Close</button></header>
-      <div id="account-auth-panel">
+      <div id="account-auth-panel" data-accounts-enabled="{{ 'true' if accounts_enabled else 'false' }}">
+        {% if accounts_enabled %}
         <section id="sign-in-intro" class="account-intro"><h3>Welcome back</h3><p>Sign in to access your saved plans and shopping sessions.</p></section>
         <section id="create-account-intro" class="account-intro" hidden><h3>Create your NutriCart account</h3><p>Save your grocery plans, meal plans, and shopping sessions and access them again later.</p></section>
         <form id="sign-in-form" class="account-form"><label>Email address<input id="sign-in-email" type="email" autocomplete="email" required></label><label>Password<span class="password-field"><input id="sign-in-password" type="password" autocomplete="current-password" required><button class="password-toggle" type="button" aria-label="Show password">Show</button></span></label><button id="forgot-password-mode" class="text-button forgot-password-action" type="button">Forgot password?</button><button class="primary account-submit" type="submit">Sign In</button><p class="auth-switch">New to NutriCart? <button id="create-account-mode" class="text-button" type="button">Create account</button></p></form>
         <form id="create-account-form" class="account-form" hidden><div class="account-name-grid"><label>First name<input id="account-first-name" type="text" autocomplete="given-name" maxlength="60" required></label><label>Last name <small>(optional)</small><input id="account-last-name" type="text" autocomplete="family-name" maxlength="60"></label></div><label>Email address<input id="account-email" type="email" autocomplete="email" required></label><label>Password<span class="password-field"><input id="account-password" type="password" autocomplete="new-password" minlength="10" required aria-describedby="account-password-help account-password-strength"><button class="password-toggle" type="button" aria-label="Show password">Show</button></span><small id="account-password-help" class="field-help">Use at least 10 characters.</small><span id="account-password-strength" class="password-strength" data-password-strength="account-password" aria-label="Password strength" role="status" aria-live="polite"></span></label><label>Confirm password<span class="password-field"><input id="account-password-confirm" data-confirm-password="account-password" type="password" autocomplete="new-password" minlength="10" required><button class="password-toggle" type="button" aria-label="Show password">Show</button></span></label><button class="primary account-submit" type="submit">Create Account</button><p class="auth-switch">Already have an account? <button id="sign-in-mode" class="text-button" type="button">Sign in</button></p><p class="guest-account-note">You can continue using NutriCart without an account.</p></form>
         <form id="forgot-password-form" class="account-form" hidden><h3>Forgot Password</h3><label>Email address<input id="forgot-password-email" type="email" autocomplete="email" required></label><button class="primary" type="submit">Send Reset Link</button><button id="forgot-back-to-sign-in" class="text-button" type="button">Back to Sign In</button></form>
+        {% else %}
+        <section id="demo-account-panel" class="demo-account-card" aria-labelledby="demo-account-title">
+          <h3 id="demo-account-title">Saved accounts aren’t available in this demo</h3>
+          <p>You can use all grocery planning, meal planning, and shopping budget tools without signing in.</p>
+          <button id="continue-as-guest" class="primary" type="button">Continue as Guest</button>
+        </section>
+        {% endif %}
       </div>
       <div id="account-user-panel" hidden>
         <div class="account-welcome"><p>Signed in as</p><strong id="account-user-name"></strong><span id="account-user-email"></span></div>
@@ -188,7 +196,7 @@
       <section id="review-section" class="panel review-panel" hidden aria-labelledby="review-title"><h2 id="review-title">Review your plan</h2><dl id="review-details" class="review-grid"></dl><div class="action-row"><button id="edit-review" class="secondary" type="button">Edit</button><button id="generate-plan" class="primary" type="button" data-cursor-effect="generate-plan">Generate Grocery Plan</button></div><div id="generate-status" class="status" role="status" aria-live="polite"></div></section>
 
       <section id="plan-results" class="results-panel" hidden aria-labelledby="plan-results-title">
-        <div class="results-title-row"><div><h2 id="plan-results-title">Your Grocery Basket</h2><p id="receipt-context" class="receipt-context"></p><p id="result-settings" class="settings-summary" hidden></p><p id="solver-status" class="help" role="status"></p></div><div class="result-utilities"><button id="save-grocery-plan" class="secondary" type="button">Save Plan</button><button id="copy-grocery-plan" class="secondary" type="button">Copy Plan</button><button id="alternative-plan" class="secondary" type="button" data-cursor-effect="alternative-plan">Generate Alternative Plan</button><button id="edit-plan" class="secondary" type="button">Edit Plan</button><span id="copy-plan-status" class="sr-only" role="status" aria-live="polite"></span></div></div>
+        <div class="results-title-row"><div><h2 id="plan-results-title">Your Grocery Basket</h2><p id="receipt-context" class="receipt-context"></p><p id="result-settings" class="settings-summary" hidden></p><p id="solver-status" class="help" role="status"></p></div><div class="result-utilities"><button id="save-grocery-plan" class="secondary" type="button"{% if not accounts_enabled %} hidden{% endif %}>Save Plan</button><button id="copy-grocery-plan" class="secondary" type="button">Copy Plan</button><button id="alternative-plan" class="secondary" type="button" data-cursor-effect="alternative-plan">Generate Alternative Plan</button><button id="edit-plan" class="secondary" type="button">Edit Plan</button><span id="copy-plan-status" class="sr-only" role="status" aria-live="polite"></span></div></div>
         <div id="plan-error" class="status error" role="alert" aria-live="assertive"></div>
         <div class="grocery-receipt">
           <section class="receipt-list" aria-labelledby="plan-results-title"><div id="grocery-list"></div></section>
@@ -222,7 +230,7 @@
           <div id="meal-basket-nutrition"></div>
         </section>
         <div class="guided-next"><h3>Ready to shop?</h3><button id="meal-open-budget" class="primary" type="button">Track My Shopping</button></div>
-        <div class="action-row peer-action-row"><button id="meal-find-snap" class="secondary" type="button">Find SNAP Stores</button><button id="meal-back-to-plan" class="secondary" type="button">Back to Grocery Plan</button><button id="save-meal-plan" class="secondary" type="button">Save Meal Plan</button><button id="meal-compare-basket" class="secondary" type="button">Compare This Basket</button></div>
+        <div class="action-row peer-action-row"><button id="meal-find-snap" class="secondary" type="button">Find SNAP Stores</button><button id="meal-back-to-plan" class="secondary" type="button">Back to Grocery Plan</button><button id="save-meal-plan" class="secondary" type="button"{% if not accounts_enabled %} hidden{% endif %}>Save Meal Plan</button><button id="meal-compare-basket" class="secondary" type="button">Compare This Basket</button></div>
       </section>
     </section>
 
@@ -311,7 +319,7 @@
           <p id="empty-purchase-log" class="budget-empty">Your actual purchases will appear here.</p>
           <div id="purchase-log"></div>
           <div class="budget-session-actions">
-            <button id="save-shopping-list" class="budget-text-button" type="button">Save Shopping Session</button>
+            <button id="save-shopping-list" class="budget-text-button" type="button"{% if not accounts_enabled %} hidden{% endif %}>Save Shopping Session</button>
             <button id="undo-purchase" class="budget-text-button" type="button" disabled>Undo Last Purchase</button>
             <button id="clear-purchases" class="budget-text-button" type="button" disabled>Clear Purchases</button>
             <button id="new-budget-session" class="budget-text-button budget-new-session" type="button">Start New Session</button>
@@ -345,11 +353,17 @@
   <script src="{{ url_for('static', filename='feedback.js', v='feedback-23') }}" defer></script>
   <script src="{{ url_for('static', filename='settings.js', v='simplified-ui-18') }}" defer></script>
   <script src="{{ url_for('static', filename='password_fields.js', v='account-recovery-1') }}" defer></script>
-  <script src="{{ url_for('static', filename='account.js', v='account-recovery-1') }}" defer></script>
+  <script src="{{ url_for('static', filename='account.js', v='demo-account-28') }}" defer></script>
   <script src="{{ url_for('static', filename='app.js', v='snap-flow-24') }}" defer></script>
   <script src="{{ url_for('static', filename='grocery.js', v='snap-flow-24') }}" defer></script>
   <script src="{{ url_for('static', filename='price_comparison.js', v='location-planning-1') }}" defer></script>
   <script src="{{ url_for('static', filename='meal_plan.js', v='shopping-flow-22') }}" defer></script>
   <script src="{{ url_for('static', filename='budget_tracker.js', v='shopping-flow-22') }}" defer></script>
+  {% if vercel_analytics_enabled %}
+  <script>
+    window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+  </script>
+  <script defer src="/_vercel/insights/script.js"></script>
+  {% endif %}
 </body>
 </html>
