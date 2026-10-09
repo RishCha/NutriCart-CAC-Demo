@@ -68,6 +68,17 @@ class VercelDemoTests(unittest.TestCase):
         for save_control in ("save-grocery-plan", "save-meal-plan", "save-shopping-list"):
             self.assertRegex(page, rf'id="{save_control}"[^>]* hidden')
 
+    def test_planner_uses_friendly_people_and_days_validation(self):
+        script = (ROOT / "static" / "grocery.js").read_text(encoding="utf-8")
+        page = self.client.get("/").text
+        self.assertIn("NutriCart supports plans for 1–20 people and 1–31 days.", script)
+        self.assertIn("NutriCart supports plans for 1–20 people.", script)
+        self.assertIn("NutriCart supports plans for 1–31 days.", script)
+        self.assertNotIn("People must be a whole number from 1 to 20.", script)
+        self.assertNotIn("Days must be a whole number from 1 to 31.", script)
+        self.assertIn('filename=\'grocery.js\', v=\'planner-validation-30\'', (ROOT / "templates" / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("grocery.js?v=planner-validation-30", page)
+
     def test_account_enabled_mode_preserves_authentication_forms(self):
         with patch.dict(app.app.config, ACCOUNTS_ENABLED=True):
             page = self.client.get("/").text

@@ -347,6 +347,25 @@ try {
   check(await evaluate("document.querySelector('#planner-location-gate').hidden && !document.querySelector('#change-planning-location').hidden && !document.querySelector('#planner-form').hidden"),'Valid location reveals form and subtle change action');
   await layout('#planner-view','planner-before');
   check(await evaluate("document.querySelector('#planner-essentials').getClientRects().length>0 && !document.querySelector('#planner-form').hidden"),'Planner heading and form visible before generation');
+  await fill({budget:'100',people:'2',days:'7',calories:'2000',protein:'50'});await click('input[name=diet][value=omnivore]');
+  check(await evaluate("!document.querySelector('#planner-error').textContent"),'Valid People and Days show no validation');
+  for(const [field,value,message] of [
+    ['people','0','NutriCart supports plans for 1–20 people.'],
+    ['people','21','NutriCart supports plans for 1–20 people.'],
+    ['people','2.5','NutriCart supports plans for 1–20 people.'],
+    ['days','0','NutriCart supports plans for 1–31 days.'],
+    ['days','32','NutriCart supports plans for 1–31 days.'],
+    ['days','7.5','NutriCart supports plans for 1–31 days.'],
+  ]) {
+    await fill({people:'2',days:'7',[field]:value});await click('#review-settings');
+    check(await evaluate(`document.querySelector('#planner-error').textContent===${JSON.stringify(message)}`),field+' '+value+' shows friendly validation');
+    await fill({[field]:field==='people'?'2':'7'});
+    check(await evaluate("!document.querySelector('#planner-error').textContent"),field+' correction clears validation');
+  }
+  await fill({people:'0',days:'0'});await click('#review-settings');
+  check(await evaluate("document.querySelector('#planner-error').textContent==='NutriCart supports plans for 1–20 people and 1–31 days.'"),'Both invalid fields show combined validation');
+  await fill({people:'2',days:'7'});
+  check(await evaluate("!document.querySelector('#planner-error').textContent"),'Correcting both fields clears combined validation');
   async function generate(diet,budget){
     await fill({budget:String(budget),people:'3',days:'1',calories:'2000',protein:'50'});
     await click(`input[name=diet][value=${diet}]`);

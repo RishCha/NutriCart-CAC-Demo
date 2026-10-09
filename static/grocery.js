@@ -35,6 +35,7 @@
   const groceryLoaderFill = document.querySelector("#grocery-loader-fill");
   const groceryLoaderPercent = document.querySelector("#grocery-loader-percent");
   const peopleInput = document.querySelector("#people");
+  const daysInput = document.querySelector("#days");
   const caloriesInput = document.querySelector("#calories");
   const proteinInput = document.querySelector("#protein");
   const customFiberInput = document.querySelector("#fiber-custom");
@@ -284,8 +285,11 @@
   function validateInputs(values) {
     const errors = [];
     if (!Number.isFinite(values.budget) || values.budget < 10) errors.push("Budget must be at least $10.");
-    if (!Number.isInteger(values.people) || values.people < 1 || values.people > 20) errors.push("People must be a whole number from 1 to 20.");
-    if (!Number.isInteger(values.days) || values.days < 1 || values.days > 31) errors.push("Days must be a whole number from 1 to 31.");
+    const peopleInvalid = !Number.isInteger(values.people) || values.people < 1 || values.people > 20;
+    const daysInvalid = !Number.isInteger(values.days) || values.days < 1 || values.days > 31;
+    if (peopleInvalid && daysInvalid) errors.push("NutriCart supports plans for 1–20 people and 1–31 days.");
+    else if (peopleInvalid) errors.push("NutriCart supports plans for 1–20 people.");
+    else if (daysInvalid) errors.push("NutriCart supports plans for 1–31 days.");
     if (!["omnivore", "vegetarian", "vegan", "pescatarian"].includes(values.diet)) errors.push("Choose a diet before generating your plan.");
     if (!Number.isFinite(values.calories) || values.calories < 500 || values.calories > 5000) errors.push(values.calories === 180 ? "Did you mean 1800 calories?" : "Daily calories must be from 500 to 5000.");
     if (!Number.isFinite(values.protein) || values.protein < 10 || values.protein > 300) errors.push("Daily protein must be from 10 to 300 grams.");
@@ -920,6 +924,17 @@
     const people = numericValue("#people");
     if (Number.isInteger(people)) syncHouseholdToPeople(people, true);
   });
+  const householdValidationMessages = [
+    "NutriCart supports plans for 1–20 people and 1–31 days.",
+    "NutriCart supports plans for 1–20 people.",
+    "NutriCart supports plans for 1–31 days.",
+  ];
+  function refreshVisibleHouseholdValidation() {
+    if (!householdValidationMessages.some(message => plannerError.textContent.includes(message))) return;
+    plannerError.textContent = validateInputs(collectInputs()).join(" ");
+  }
+  peopleInput.addEventListener("input", refreshVisibleHouseholdValidation);
+  daysInput.addEventListener("input", refreshVisibleHouseholdValidation);
 
   document.querySelector("#use-suggested-targets").addEventListener("click", () => {
     const people = numericValue("#people");
