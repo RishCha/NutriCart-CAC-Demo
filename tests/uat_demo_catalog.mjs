@@ -128,7 +128,7 @@ try {
 
 
 
-  const checks=[], assets=[];
+  const checks=[], assets=[], lockedCardMetrics={};
   socket.addEventListener('message',event=>{const m=JSON.parse(event.data);if(m.method==='Network.responseReceived' && m.params.response.url.includes('/static/')) assets.push({url:new URL(m.params.response.url).pathname,status:m.params.response.status});});
   await cdp('Network.enable');await cdp('Network.setCacheDisabled',{cacheDisabled:true});
   await cdp('Page.reload',{ignoreCache:true});await until(()=>evaluate("document.readyState==='complete' && Boolean(window.NutriCartSettings)"),'scripts after hard refresh');
@@ -158,6 +158,10 @@ try {
         const metrics=await cdp('Page.getLayoutMetrics');
         const shot=await cdp('Page.captureScreenshot',{format:'png',captureBeyondViewport:true,clip:{x:0,y:0,width,height:metrics.cssContentSize.height,scale:1}});
         await writeFile(path.join(artifacts,'desktop-polish-planner-'+width+'.png'),Buffer.from(shot.data,'base64'));
+      }
+      if(['planner-locked','meal-empty','budget-locked'].includes(name) && width===1440 && size==='normal') {
+        const shot=await cdp('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});
+        await writeFile(path.join(artifacts,name+'-desktop.png'),Buffer.from(shot.data,'base64'));
       }
       if(name==='shopping') {
         const order=await evaluate(`(()=>{const b=document.querySelector('#budget-balance-card').getBoundingClientRect(),l=document.querySelector('#shopping-list-panel').getBoundingClientRect(),a=document.querySelector('#additional-purchases').getBoundingClientRect();return {balance:b.top,list:l.top,bottom:b.bottom,additional:a.top,listBottom:l.bottom}})()`);
@@ -225,9 +229,10 @@ try {
   check(await evaluate("window.feedbackPosts.every(p=>Object.keys(p).sort().join(',')==='comment,rating') && document.querySelector('#feedback-comment').value===''"),'Feedback sends no shopping metadata and clears delivered comment');
   await click('#feedback-close');await evaluate('window.fetch=window.feedbackRealFetch');
   await click('#planner-tab');
-  check(await evaluate("document.querySelector('#planner-form').hidden && !document.querySelector('#planner-location-gate').hidden && document.querySelector('#planner-view .planner-card').classList.contains('is-workflow-locked') && document.querySelector('#planner-location-gate p').textContent==='Find a SNAP-authorized store first to unlock grocery planning.'"),'Fresh guest sees the locked Step 2 state');
+  check(await evaluate("document.querySelector('#planner-form').hidden && document.querySelector('#planner-view .planner-card').hidden && !document.querySelector('#planner-location-gate').hidden && document.querySelector('#planner-location-gate .workflow-locked-message').textContent==='Find a SNAP-authorized store first to unlock grocery planning.'"),'Fresh guest sees the locked Step 2 state');
   check(await evaluate("document.querySelector('#planner-tab').classList.contains('is-workflow-locked') && document.querySelector('#planner-tab').getAttribute('aria-label').includes('locked')"),'Locked planner remains visible and accessible in navigation');
   await layout('#planner-view','planner-locked');
+  lockedCardMetrics.planner=await evaluate("(()=>{const c=document.querySelector('#planner-location-gate'),r=c.getBoundingClientRect(),b=c.querySelector('.workflow-lock-badge').getBoundingClientRect(),s=getComputedStyle(c);return {width:r.width,height:r.height,badge:b.width,padding:s.padding,borderRadius:s.borderRadius}})()");
   await evaluate("window.originalLocationGetter=NutriCartLocation.get;NutriCartLocation.get=()=>({});document.dispatchEvent(new Event('nutricart:location-changing'))");
   check(await evaluate("document.querySelector('#planner-form').hidden"),'Empty location object cannot unlock planner');
   await evaluate("NutriCartLocation.get=window.originalLocationGetter");
@@ -265,11 +270,15 @@ try {
   check(await evaluate("NutriCartSettings.getSetting('snapRadius')===5 && !NutriCartSettings.getSetting('rememberSettings')"),'Disabled persistence does not survive reload');
   await evaluate("document.addEventListener('nutricart:plan-updated',e=>window.task16Plan={context:e.detail.context,result:e.detail.result})");
   await click('#meal-plan-tab');
-  check(await evaluate("!document.querySelector('#meal-plan-empty').hidden && document.querySelector('#meal-empty-title').textContent==='Create your grocery basket first to unlock meal ideas.' && document.querySelector('#create-plan-from-meals').textContent==='Find SNAP Stores'"),'Locked Step 3 explains the earliest required action');
+  check(await evaluate("!document.querySelector('#meal-plan-empty').hidden && document.querySelector('#meal-empty-title').textContent==='Meal Plan' && document.querySelector('#meal-plan-empty .workflow-locked-message').textContent==='Create your grocery basket first to unlock meal ideas.' && document.querySelector('#create-plan-from-meals').textContent==='Find SNAP Stores'"),'Locked Step 3 explains the earliest required action');
   await layout('#meal-plan-view','meal-empty');
+  lockedCardMetrics.meal=await evaluate("(()=>{const c=document.querySelector('#meal-plan-empty'),r=c.getBoundingClientRect(),b=c.querySelector('.workflow-lock-badge').getBoundingClientRect(),s=getComputedStyle(c);return {width:r.width,height:r.height,badge:b.width,padding:s.padding,borderRadius:s.borderRadius}})()");
   await click('#shopping-budget-tab');
   check(await evaluate("!document.querySelector('#shopping-budget-locked').hidden && document.querySelector('#budget-dashboard').hidden && document.querySelector('#budget-locked-action').textContent==='Find SNAP Stores'"),'Locked Step 4 replaces the empty dashboard with the earliest action');
   await layout('#shopping-budget-view','budget-locked');
+  lockedCardMetrics.budget=await evaluate("(()=>{const c=document.querySelector('#shopping-budget-locked'),r=c.getBoundingClientRect(),b=c.querySelector('.workflow-lock-badge').getBoundingClientRect(),s=getComputedStyle(c);return {width:r.width,height:r.height,badge:b.width,padding:s.padding,borderRadius:s.borderRadius}})()");
+  const lockedCards=Object.values(lockedCardMetrics);
+  check(lockedCards.every(card=>Math.abs(card.width-lockedCards[0].width)<1&&Math.abs(card.height-lockedCards[0].height)<1&&card.badge===64&&card.padding===lockedCards[0].padding&&card.borderRadius===lockedCards[0].borderRadius),'All three desktop locked cards share dimensions, spacing, radius, and lock badge size');
   await click('#home-button');await click('#hero-find-snap');
   check(await evaluate("!document.querySelector('.locator').hidden"),'Start opens SNAP');
   check(await evaluate("document.querySelector('#detected-location').hidden && !document.querySelector('#snap-build-basket') && document.querySelector('.or').getClientRects().length>0"),'Initial SNAP state has no success panel, empty bar or continuation');
@@ -395,7 +404,7 @@ try {
   await click('#open-meal-from-plan');await until(()=>evaluate("!document.querySelector('#meal-plan-results').hidden"),'real meals',60000);
   check(await evaluate("!document.querySelector('#meal-source-summary').textContent.includes(window.task16Plan.context.location.locality) && !!window.task16Plan.context.selected_store"),'Meal summary omits locality while plan retains store context');
   await layout('#meal-plan-view','generated-meals');
-  check(await evaluate("document.querySelectorAll('#meal-plan-view h1').length===1 && document.querySelector('#meal-open-budget').textContent==='Track My Shopping'"),'Generated meals retain explicit shopping action');
+  check(await evaluate("[...document.querySelectorAll('#meal-plan-view h1')].filter(h=>h.getClientRects().length).length===1 && document.querySelector('#meal-open-budget').textContent==='Track My Shopping'"),'Generated meals retain explicit shopping action');
   await click('#meal-open-budget');
   await layout('#shopping-budget-view','shopping');
   for(const width of [1440,390,320]) {

@@ -76,8 +76,8 @@ class VercelDemoTests(unittest.TestCase):
         self.assertIn("NutriCart supports plans for 1–31 days.", script)
         self.assertNotIn("People must be a whole number from 1 to 20.", script)
         self.assertNotIn("Days must be a whole number from 1 to 31.", script)
-        self.assertIn('filename=\'grocery.js\', v=\'locked-steps-32\'', (ROOT / "templates" / "index.html").read_text(encoding="utf-8"))
-        self.assertIn("grocery.js?v=locked-steps-32", page)
+        self.assertIn('filename=\'grocery.js\', v=\'locked-design-34\'', (ROOT / "templates" / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("grocery.js?v=locked-design-34", page)
 
     def test_sequential_workflow_locks_are_visible_and_event_driven(self):
         page = self.client.get("/").text
@@ -94,6 +94,10 @@ class VercelDemoTests(unittest.TestCase):
             self.assertIn(message, page)
         self.assertIn('id="shopping-budget-locked"', page)
         self.assertIn('class="nav-lock-indicator"', page)
+        self.assertEqual(page.count('class="workflow-locked-card"'), 3)
+        self.assertEqual(page.count('class="workflow-lock-badge"'), 3)
+        self.assertEqual(page.count('class="workflow-lock-svg"'), 6)
+        self.assertNotIn("workflow-lock-icon", page)
         self.assertNotRegex(page, r'id="(?:planner-tab|meal-plan-tab|shopping-budget-tab)"[^>]*disabled')
         self.assertIn("hasPlanningLocation() && hasPlanningStore()", grocery)
         self.assertIn('addEventListener("nutricart:store-changed", () => {', grocery)

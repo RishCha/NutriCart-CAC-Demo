@@ -15,8 +15,7 @@
   const form = document.querySelector("#planner-form");
   const plannerCard = document.querySelector("#planner-view .planner-card");
   const plannerGate = document.querySelector("#planner-location-gate");
-  const plannerLockIcon = document.querySelector("#planner-lock-icon");
-  const mealLockIcon = document.querySelector("#meal-lock-icon");
+  const mealHeading = document.querySelector("#meal-plan-view .meal-plan-heading");
   const mealEmpty = document.querySelector("#meal-plan-empty");
   const mealReady = document.querySelector("#meal-plan-ready");
   const mealResults = document.querySelector("#meal-plan-results");
@@ -107,9 +106,8 @@
     const budgetReady = basketReady || budgetSessionReady;
     const next = nextRequiredStep();
 
-    plannerCard.classList.toggle("is-workflow-locked", !plannerReady);
-    plannerLockIcon.hidden = plannerReady;
     plannerGate.hidden = plannerReady;
+    plannerCard.hidden = !plannerReady;
     document.querySelector("#change-planning-location").hidden = !hasPlanningLocation();
     if (!plannerReady) {
       form.hidden = true;
@@ -118,7 +116,7 @@
       form.hidden = false;
     }
 
-    mealLockIcon.hidden = basketReady;
+    mealHeading.hidden = !basketReady;
     if (!basketReady) {
       mealEmpty.hidden = false;
       mealReady.hidden = true;
