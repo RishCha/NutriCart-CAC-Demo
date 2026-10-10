@@ -388,14 +388,28 @@ try {
     await until(()=>evaluate("!document.querySelector('#plan-results').hidden && document.querySelector('#grocery-plan-loader').hidden"),'real basket',120000);
     check(await evaluate("NutriCartWorkflow.get().basketReady && !document.querySelector('#meal-plan-tab').classList.contains('is-workflow-locked') && !document.querySelector('#shopping-budget-tab').classList.contains('is-workflow-locked')"),diet+': basket unlocks Meal Plan and Shopping Budget independently');
     check(await evaluate("document.querySelector('#plan-results-title').textContent==='Your Grocery Basket' && document.querySelector('#planner-essentials').getClientRects().length===0 && !document.querySelector('#basket-location')"),diet+': one result heading/location');
-    check(await evaluate(`document.querySelector('#receipt-context').textContent.includes('${diet[0].toUpperCase()+diet.slice(1)}') && document.querySelector('#receipt-context').textContent.includes('3 people') && document.querySelector('#receipt-context').textContent.includes('1 day')`),diet+': compact truthful summary');
+    const basketContext=await evaluate("(()=>{const context=window.task16Plan.context,summary=document.querySelector('#receipt-context').textContent,store=context.selected_store?.name?.trim()||'',location=[context.location?.locality,context.location?.region].filter(Boolean).join(', ');return {summary,store,location}})()");
+    check(basketContext.store && basketContext.summary.startsWith(basketContext.store+' · ') && basketContext.summary.includes(diet.charAt(0).toUpperCase()+diet.slice(1)) && basketContext.summary.includes('3 people') && basketContext.summary.includes('1 day') && (!basketContext.location || !basketContext.summary.includes(basketContext.location)),diet+': basket summary uses the selected retailer without locality '+JSON.stringify(basketContext));
   }
   // Same real resolved location and nutrition settings for both diets.
   await generate('vegan',500.45);check(await evaluate("window.task16Plan.result.groceries.every(p=>p.product_id.startsWith('demo-')) && document.querySelector('#grocery-list').textContent.length>0"),'Independent demo products only');check(await evaluate("document.querySelector('#receipt-price-source').textContent.includes('Example grocery prices')"),'Synthetic price disclosure');await layout('#planner-view','vegan-basket');
   await click('#edit-plan');check(await evaluate("!document.querySelector('#planner-form').hidden && document.querySelector('#budget').value==='500.45'"),'Edit retains original form inputs');
+  await click('#snap-tab');
+  const changedStore=await evaluate("(()=>{const before=NutriCartStore.get()?.name;const next=[...document.querySelectorAll('[name=snap_store]')].find(radio=>!radio.checked);next.click();return {before,after:NutriCartStore.get()?.name,basketReady:NutriCartWorkflow.get().basketReady}})()");
+  check(changedStore.before && changedStore.after && changedStore.before!==changedStore.after && !changedStore.basketReady,'Selecting a different store clears the stale basket '+JSON.stringify(changedStore));
+  await click('#snap-build-basket');
   await generate('vegetarian',500.45);
-  await click('#edit-plan');await click('input[name=diet][value=pescatarian]');await click('#include-fish');
+  await click('#snap-tab');
+  await evaluate("window.fetch=(url,opts)=>{if(url==='/api/geocode')return Promise.resolve(new Response(JSON.stringify({latitude:47.61,longitude:-122.33,matched_address:'Task 38 public fixture',planning_location:{locality:'Longview',region:'WA'}}),{status:200}));if(url==='/api/snap-retailers')return Promise.resolve(new Response(JSON.stringify({retailers:[{record_id:'task38-short',store_name:'Task 38 Market',city:'Longview',state:'WA',street_address:'Public fixture street',distance_miles:1},{record_id:'task38-long',store_name:'Northwest Community Market and Grocery Cooperative',city:'Longview',state:'WA',street_address:'Public fixture avenue',distance_miles:2}]}),{status:200}));return window.realFetch(url,opts)}");
+  await fill({address:'Task 38 public fixture'});await click('#address-button');
+  await until(()=>evaluate("document.querySelectorAll('[name=snap_store]').length===2 && !document.querySelector('#address-button').disabled"),'Task 38 retailer fixtures');
+  await click('[name=snap_store][value="1"]');
+  check(await evaluate("NutriCartStore.get()?.name==='Northwest Community Market and Grocery Cooperative' && !NutriCartWorkflow.get().basketReady"),'New location uses the newly selected long retailer and clears the stale basket');
+  await click('#snap-build-basket');
+  await evaluate('window.fetch=window.realFetch');
+  await click('input[name=diet][value=pescatarian]');await click('#include-fish');
   await generate('pescatarian',25);
+  await layout('#planner-view','long-store-basket');
   check(await evaluate("window.task16Plan.context.include_fish && window.task16Plan.result.groceries.some(p=>p.product_id==='demo-salmon')"),'Requested fish included in genuine Pescatarian basket');
   await click('#edit-plan');check(await evaluate("document.querySelector('#include-fish').checked"),'Edit preserves explicit fish preference');
   await generate('pescatarian',25);
@@ -455,6 +469,7 @@ try {
   assert(saved.context && saved.result.groceries.length);
   await evaluate(`document.dispatchEvent(new CustomEvent('nutricart:open-saved-plan',{detail:{data:${JSON.stringify(saved)},updated_at:'2026-10-02T12:00:00Z'}}))`);await delay(600);
   check(await evaluate("!document.querySelector('#plan-results').hidden && document.querySelector('#planner-essentials').getClientRects().length===0"),'Saved basket restore uses same compact result');
+  check(await evaluate("document.querySelector('#receipt-context').textContent.startsWith(window.task16Plan.context.selected_store.name+' · ') && !document.querySelector('#receipt-context').textContent.includes([window.task16Plan.context.location?.locality,window.task16Plan.context.location?.region].filter(Boolean).join(', '))"),'Saved basket restores its selected retailer summary');
   await click('#shopping-budget-tab');const restored=await state();
   check(JSON.stringify(restored.purchases)===JSON.stringify(bought.purchases),'Restoring basket preserves purchases');
   check(await evaluate("fetch('/api/account/session').then(r=>r.json()).then(r=>!r.authenticated)"),'Guest session works');

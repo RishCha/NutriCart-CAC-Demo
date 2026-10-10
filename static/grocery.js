@@ -572,6 +572,10 @@
     };
   }
 
+  function selectedStoreName(context) {
+    const name = context?.selected_store?.name;
+    return typeof name === "string" ? name.trim() : "";
+  }
   function renderResult(result, alternative = false, contextOverride = null) {
     stopGeneration();
     if (alternative && currentResult?.groceries?.length) {
@@ -583,7 +587,7 @@
     }
     const context = {...(contextOverride || result.planning_context || reviewedInputs || {})};
     if (!contextOverride) context.selected_store = reviewedInputs?.selected_store || null;
-    const locationLabel = [context.location?.locality, context.location?.region].filter(Boolean).join(", ");
+    const storeLabel = selectedStoreName(context);
     const budget = Number(context.budget);
     const total = Number(result.total_cost || 0);
     currentResult = {...result, remaining_budget: Number.isFinite(budget) ? Number((budget - total).toFixed(2)) : result.remaining_budget};
@@ -607,7 +611,7 @@
       ? `${Number(result.quality_score).toFixed(1)} / 100`
       : "Not available";
     const settings = result.planning_settings || {};
-    document.querySelector("#receipt-context").textContent = [locationLabel, `${money(budget)} budget`, `${context.people} ${Number(context.people) === 1 ? "person" : "people"}`, `${context.days} ${Number(context.days) === 1 ? "day" : "days"}`, labelFor(settings.diet || context.diet)].filter(Boolean).join(" \u00b7 ");
+    document.querySelector("#receipt-context").textContent = [storeLabel, `${money(budget)} budget`, `${context.people} ${Number(context.people) === 1 ? "person" : "people"}`, `${context.days} ${Number(context.days) === 1 ? "day" : "days"}`, labelFor(settings.diet || context.diet)].filter(Boolean).join(" \u00b7 ");
     const preferenceDetails = [];
     if ((settings.nutrition_focus || "none") !== "none") preferenceDetails.push(labelFor(settings.nutrition_focus));
     const avoided = [...(settings.food_group_exclusions || []).map(labelFor), ...(context.foods_to_avoid || [])];

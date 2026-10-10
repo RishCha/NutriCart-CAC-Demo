@@ -76,8 +76,19 @@ class VercelDemoTests(unittest.TestCase):
         self.assertIn("NutriCart supports plans for 1–31 days.", script)
         self.assertNotIn("People must be a whole number from 1 to 20.", script)
         self.assertNotIn("Days must be a whole number from 1 to 31.", script)
-        self.assertIn('filename=\'grocery.js\', v=\'locked-design-34\'', (ROOT / "templates" / "index.html").read_text(encoding="utf-8"))
-        self.assertIn("grocery.js?v=locked-design-34", page)
+        self.assertIn('filename=\'grocery.js\', v=\'basket-store-38\'', (ROOT / "templates" / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("grocery.js?v=basket-store-38", page)
+
+    def test_basket_summary_uses_selected_store_name_without_location_fallback(self):
+        script = (ROOT / "static" / "grocery.js").read_text(encoding="utf-8")
+        self.assertIn("function selectedStoreName(context)", script)
+        self.assertIn("context?.selected_store?.name", script)
+        render = script.split("function renderResult", 1)[1].split("function formatPlanForCopy", 1)[0]
+        self.assertIn("storeLabel", render)
+        self.assertIn("[storeLabel,", render)
+        self.assertIn(".filter(Boolean).join", render)
+        self.assertNotIn("locationLabel", render)
+        self.assertNotIn("context.location?.locality", render)
 
     def test_unlocked_meal_plan_empty_state_is_compact_and_connected(self):
         page = self.client.get("/").text
