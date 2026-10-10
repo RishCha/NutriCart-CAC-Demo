@@ -399,6 +399,12 @@ try {
   check(await evaluate("window.task16Plan.context.include_fish && window.task16Plan.result.groceries.some(p=>p.product_id==='demo-salmon')"),'Requested fish included in genuine Pescatarian basket');
   await click('#edit-plan');check(await evaluate("document.querySelector('#include-fish').checked"),'Edit preserves explicit fish preference');
   await generate('pescatarian',25);
+  await click('#meal-plan-tab');
+  check(await evaluate("!document.querySelector('#meal-plan-ready').hidden && document.querySelector('#meal-plan-results').hidden && document.querySelector('.meal-plan-subtitle').textContent==='Turn your grocery basket into simple meal ideas.' && document.querySelector('#meal-plan-ready p').textContent==='Use the groceries already in your basket to build your meal plan.'"),'Unlocked Meal Plan shows the connected empty state');
+  await layout('#meal-plan-view','meal-ready');
+  const mealReadyMetrics=await evaluate("(()=>{const c=document.querySelector('#meal-plan-ready').getBoundingClientRect(),b=document.querySelector('#create-meal-plan').getBoundingClientRect();document.querySelector('#create-meal-plan').focus();return {width:c.width,height:c.height,buttonHeight:b.height,focused:document.activeElement.id}})()");
+  check(mealReadyMetrics.width<=801 && mealReadyMetrics.height<330 && mealReadyMetrics.buttonHeight>=52 && mealReadyMetrics.focused==='create-meal-plan','Unlocked Meal Plan card is compact and keyboard ready '+JSON.stringify(mealReadyMetrics));
+  await click('#planner-tab');
   await click('#alternative-plan');await until(()=>evaluate("document.querySelector('#grocery-plan-loader').hidden && !document.querySelector('#alternative-plan').disabled"),'alternative complete',120000);
   check(await evaluate("!document.querySelector('#plan-results').hidden && document.querySelector('#plan-results-title').textContent==='Your Grocery Basket' && document.querySelector('#planner-essentials').getClientRects().length===0"),'Alternative keeps single result heading');
   await click('#open-meal-from-plan');await until(()=>evaluate("!document.querySelector('#meal-plan-results').hidden"),'real meals',60000);

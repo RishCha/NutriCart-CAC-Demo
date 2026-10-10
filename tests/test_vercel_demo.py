@@ -79,6 +79,18 @@ class VercelDemoTests(unittest.TestCase):
         self.assertIn('filename=\'grocery.js\', v=\'locked-design-34\'', (ROOT / "templates" / "index.html").read_text(encoding="utf-8"))
         self.assertIn("grocery.js?v=locked-design-34", page)
 
+    def test_unlocked_meal_plan_empty_state_is_compact_and_connected(self):
+        page = self.client.get("/").text
+        styles = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
+        self.assertIn("Turn your grocery basket into simple meal ideas.", page)
+        self.assertIn("Use the groceries already in your basket to build your meal plan.", page)
+        self.assertRegex(page, r'id="meal-plan-ready"[^>]* hidden')
+        self.assertIn("#meal-plan-view:has(#meal-plan-ready:not([hidden])) .meal-plan-heading", styles)
+        self.assertIn("width: min(100%, 800px)", styles)
+        self.assertIn("#meal-plan-ready .primary", styles)
+        self.assertNotIn("min-height: 330px", styles.split("/* Compact unlocked Meal Plan action state. */", 1)[1])
+        self.assertIn("styles.css?v=meal-empty-36", page)
+
     def test_sequential_workflow_locks_are_visible_and_event_driven(self):
         page = self.client.get("/").text
         grocery = (ROOT / "static" / "grocery.js").read_text(encoding="utf-8")

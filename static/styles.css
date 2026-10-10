@@ -1848,3 +1848,21 @@ html { scroll-padding-top: var(--header-offset, 190px); }
   .workflow-locked-card .primary { width: 100%; }
   .view-tabs button { gap: 4px; }
 }
+/* Compact unlocked Meal Plan action state. */
+.meal-plan-subtitle { max-width: 560px; margin: 6px 0 0; color: var(--muted); line-height: 1.5; }
+#meal-plan-view:has(#meal-plan-ready:not([hidden])) .meal-plan-heading { box-sizing: border-box; width: min(100%, 800px); margin-inline: auto; }
+#meal-plan-ready {
+  box-sizing: border-box; width: min(100%, 800px); min-height: 0; margin: 0 auto;
+  padding: clamp(28px, 4vw, 42px); border: 1px solid var(--line); border-radius: 0 0 20px 20px;
+  background: #f2f5f0; box-shadow: 0 8px 24px #17352a0d; text-align: center;
+}
+#meal-plan-ready h2 { margin: 0; color: var(--green-dark); font-size: clamp(1.3rem, 2.4vw, 1.65rem); letter-spacing: -.015em; }
+#meal-plan-ready p { max-width: 540px; margin: 10px auto 22px; color: var(--muted); line-height: 1.55; }
+#meal-plan-ready .primary { min-width: min(100%, 250px); min-height: 52px; padding: 12px 24px; border-radius: 14px; white-space: normal; box-shadow: 0 3px 10px #17352a18; }
+[data-high-contrast="true"] #meal-plan-ready { border-color: currentColor; background: #fff; box-shadow: none; }
+@media (max-width: 600px) {
+  .meal-plan-heading { padding-inline: 18px; }
+  #meal-plan-ready { padding: 24px 18px; }
+  #meal-plan-ready p { margin-bottom: 18px; }
+  #meal-plan-ready .primary { width: 100%; }
+}

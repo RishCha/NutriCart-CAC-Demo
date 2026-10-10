@@ -6,7 +6,7 @@
   <title>NutriCart</title>
   {% set brand_icon %}{% include "nutricart-logo.svg" %}{% endset %}
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,{{ brand_icon|urlencode }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='locked-design-34') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='meal-empty-36') }}">
 </head>
 <body>
   <main class="shell">
@@ -222,7 +222,7 @@
     </section>
 
     <section id="meal-plan-view" class="app-view meal-plan-view" role="tabpanel" tabindex="-1" hidden aria-labelledby="meal-plan-tab meal-plan-title">
-      <header class="meal-plan-heading" hidden><p class="workflow-step-label">Step 3 of 4</p><h1 id="meal-plan-title">Meal Plan</h1></header>
+      <header class="meal-plan-heading" hidden><p class="workflow-step-label">Step 3 of 4</p><h1 id="meal-plan-title">Meal Plan</h1><p class="meal-plan-subtitle">Turn your grocery basket into simple meal ideas.</p></header>
       <section id="meal-plan-empty" class="workflow-locked-card" role="status" aria-live="polite" aria-labelledby="meal-empty-title">
         <span class="workflow-lock-badge" aria-hidden="true"><svg class="workflow-lock-svg" viewBox="0 0 24 24" focusable="false"><rect x="5" y="10" width="14" height="10" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path></svg></span>
         <p class="workflow-step-label">Step 3 of 4</p>
@@ -230,7 +230,11 @@
         <p class="workflow-locked-message">Create your grocery basket first to unlock meal ideas.</p>
         <button id="create-plan-from-meals" class="primary" type="button">Find SNAP Stores</button>
       </section>
-      <section id="meal-plan-ready" class="meal-ready-state" hidden aria-labelledby="meal-ready-title"><h2 id="meal-ready-title">Create meals from your basket</h2><button id="create-meal-plan" class="primary" type="button" data-cursor-effect="create-meal-plan">Create Meal Plan</button></section>
+      <section id="meal-plan-ready" class="meal-ready-state" hidden aria-labelledby="meal-ready-title">
+        <h2 id="meal-ready-title">Create meals from your basket</h2>
+        <p>Use the groceries already in your basket to build your meal plan.</p>
+        <button id="create-meal-plan" class="primary" type="button" data-cursor-effect="create-meal-plan">Create Meal Plan</button>
+      </section>
       <p id="meal-plan-status" class="status" role="status" aria-live="polite"></p>
       <section id="meal-plan-results" hidden aria-labelledby="meal-results-title">
         <div class="meal-results-heading"><h2 id="meal-results-title">Daily Meals</h2><p id="meal-source-summary" class="journey-source"></p></div>
