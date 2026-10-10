@@ -16,13 +16,22 @@ Task 22 verification uses `tests/test_task22.py` alongside the existing availabl
 
 ## Optional feedback email
 
-Public sending is disabled in source by FEEDBACK_ENABLED=False, even when SMTP is configured. No durable or deployment-wide rate limiting has been verified. Keep this gate disabled until an operator configures and verifies deployment-level abuse protection and provider quotas, then reviews a separate change to enable sending. Tests override this gate only with mocked mail transport. The feedback UI remains available; SMTP credentials alone do not enable it.
+Public sending is disabled by default. Production feedback delivery is available only when all of the following are configured:
+
+1. `NUTRICART_FEEDBACK_ENABLED=true` (the accepted enabled values are `1`, `true`, or `yes`, case-insensitive).
+2. Valid encrypted SMTP configuration.
+3. A valid `NUTRICART_FEEDBACK_TO` recipient.
+4. Deployment-wide abuse protection, such as the Vercel Firewall rate-limit rule protecting `POST /api/feedback`.
+
+SMTP credentials alone do not enable sending. If the flag or any required delivery setting is missing or malformed, the API reports feedback as disabled and the UI does not submit. Tests use only synthetic configuration and mocked mail transport.
+
+The current production control is the Vercel Firewall rule `feedback-rate-limit`, limited to three `POST /api/feedback` requests per 600 seconds per IP; excess requests return HTTP 429. Keep an equivalent deployment-wide control in place whenever feedback sending is enabled.
 
 Set NUTRICART_FEEDBACK_TO to the recipient address. Also configure NUTRICART_SMTP_HOST, NUTRICART_SMTP_PORT (587 for STARTTLS or 465 for TLS), NUTRICART_SMTP_FROM, NUTRICART_SMTP_USERNAME, NUTRICART_SMTP_PASSWORD, and a stable FLASK_SECRET_KEY in the hosting dashboard. Do not put credentials in Git or client JavaScript. Feedback uses the port to require encrypted authenticated SMTP. No mail is sent when required configuration is missing or invalid.
 
 Delivery runs synchronously within the request, with five-second socket timeouts, without a local database or background worker. Success means the SMTP server accepted the email, not guaranteed inbox placement. Failed or uncertain delivery shows an error; there is no automatic retry. Verify delivery to your chosen mailbox after configuration before announcing availability.
 
-CSRF, same-origin checks, bounded JSON, fixed sender/recipient and a signed-session cooldown protect normal use. The cookie cooldown is not a distributed abuse limit: clearing/replaying cookies or parallel requests can bypass it. Before enabling public email, configure a Vercel WAF rate-limit rule for POST /api/feedback and provider sending quotas. Do not rely on process-local counters in serverless functions.
+CSRF, same-origin checks, bounded JSON, fixed sender/recipient and a signed-session cooldown protect normal use. The cookie cooldown is not a distributed abuse limit: clearing/replaying cookies or parallel requests can bypass it. Keep a deployment-wide rate-limit rule for `POST /api/feedback` and provider sending quotas whenever production feedback is enabled. Do not rely on process-local counters in serverless functions.
 
 SMTP reference: https://docs.python.org/3/library/smtplib.html
 

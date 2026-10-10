@@ -1,8 +1,64 @@
 """Feedback delivery contracts; all mail transport is mocked."""
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
 import unittest
 from unittest.mock import patch, MagicMock
 import app
 import feedback_delivery
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class FeedbackEnvironmentFlagTests(unittest.TestCase):
+    def probe(self, flag=None, **changes):
+        env = {key: os.environ[key] for key in ("SYSTEMROOT", "WINDIR", "PATH", "TEMP", "TMP") if key in os.environ}
+        env.update({
+            "PYTHON_DOTENV_DISABLED": "1", "FLASK_SKIP_DOTENV": "1", "NUTRICART_CATALOG_MODE": "demo",
+            "NUTRICART_SMTP_HOST": "smtp.example.test", "NUTRICART_SMTP_PORT": "587",
+            "NUTRICART_SMTP_FROM": "demo@example.test", "NUTRICART_SMTP_USERNAME": "fixture",
+            "NUTRICART_SMTP_PASSWORD": "fixture", "NUTRICART_FEEDBACK_TO": "review@example.test",
+        })
+        if flag is not None:
+            env["NUTRICART_FEEDBACK_ENABLED"] = flag
+        env.update(changes)
+        code = """
+import json
+import app
+response = app.app.test_client().get('/api/feedback')
+print(json.dumps({'flag': app.app.config['FEEDBACK_ENABLED'], 'enabled': response.json['enabled'],
+                  'keys': sorted(response.json), 'cache': response.headers.get('Cache-Control')}))
+"""
+        result = subprocess.run([sys.executable, "-B", "-c", code], cwd=ROOT, env=env,
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout.strip())
+
+    def test_missing_and_false_flags_default_to_disabled(self):
+        for flag in (None, "", "false", "0", "no", "unexpected"):
+            with self.subTest(flag=flag):
+                state = self.probe(flag)
+                self.assertFalse(state["flag"])
+                self.assertFalse(state["enabled"])
+                self.assertEqual(state["keys"], ["csrf_token", "enabled"])
+                self.assertEqual(state["cache"], "no-store")
+
+    def test_accepted_flags_enable_only_with_valid_delivery_configuration(self):
+        for flag in ("1", "true", "TRUE", "yes", "YeS"):
+            with self.subTest(flag=flag):
+                state = self.probe(flag)
+                self.assertTrue(state["flag"])
+                self.assertTrue(state["enabled"])
+
+    def test_enabled_flag_still_fails_closed_for_malformed_smtp(self):
+        for changes in ({"NUTRICART_SMTP_PORT": "bad"}, {"NUTRICART_SMTP_PORT": "25"},
+                        {"NUTRICART_SMTP_PASSWORD": ""}, {"NUTRICART_FEEDBACK_TO": "invalid"}):
+            with self.subTest(changes=changes):
+                state = self.probe("true", **changes)
+                self.assertTrue(state["flag"])
+                self.assertFalse(state["enabled"])
 
 class FeedbackTests(unittest.TestCase):
     def setUp(self):

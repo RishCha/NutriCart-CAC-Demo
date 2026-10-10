@@ -62,8 +62,8 @@ app.config.update(
     SESSION_COOKIE_SECURE=os.getenv("FLASK_COOKIE_SECURE", "true" if os.getenv("VERCEL") == "1" else "").lower() in {"1", "true", "yes"},
     ACCOUNT_DATABASE=os.getenv("NUTRICART_DATABASE") or str(Path(app.instance_path) / "nutricart.db"),
     PASSWORD_RESET_ORIGIN=os.getenv("NUTRICART_PUBLIC_URL", ""),
-    # Public sending stays off until durable deployment abuse controls are reviewed.
-    FEEDBACK_ENABLED=False,
+    # Fail closed unless an operator explicitly enables feedback in the deployment.
+    FEEDBACK_ENABLED=os.getenv("NUTRICART_FEEDBACK_ENABLED", "").lower() in {"1", "true", "yes"},
     FEEDBACK_TO=os.getenv("NUTRICART_FEEDBACK_TO", ""),
     SMTP_HOST=os.getenv("NUTRICART_SMTP_HOST", ""),
     SMTP_PORT=os.getenv("NUTRICART_SMTP_PORT", "587"),

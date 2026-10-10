@@ -1,8 +1,11 @@
+import copy
+import json
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 import app
+from meal_planner import build_meal_plan, meal_display_name
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,6 +34,71 @@ class MealPlanApiTests(unittest.TestCase):
             bad = {**self.payload, "groceries": [{"product_id": "bad", "quantity": 1}]}
             self.assertEqual(self.client.post("/api/meal-plan", json=bad).status_code, 400)
             self.assertEqual(self.client.post("/api/meal-plan", json={}).status_code, 400)
+
+
+class MealPlanQualityTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        catalog = json.loads((ROOT / "data" / "demo" / "food_catalog.json").read_text(encoding="utf-8"))
+        cls.catalog = {item["food_profile"]: item for item in catalog}
+
+    def basket(self, *profiles):
+        items = []
+        for profile in profiles:
+            item = copy.deepcopy(self.catalog[profile])
+            item["quantity"] = 2
+            items.append(item)
+        return items
+
+    def test_catalog_descriptors_are_cleaned_only_in_titles(self):
+        cases = (
+            ({"product_name": "Potatoes, raw", "food_profile": "potato"}, "Potatoes"),
+            ({"product_name": "Lentils, dry", "food_profile": "lentils"}, "Lentils"),
+            ({"product_name": "Chickpeas, dry", "food_profile": "chickpeas"}, "Chickpeas"),
+            ({"product_name": "Brown rice, long-grain, cooked", "food_profile": "brown_rice"}, "Brown Rice"),
+            ({"product_name": "Quinoa, cooked", "food_profile": "unknown"}, "Quinoa"),
+            ({"product_name": "Peanuts, dry roasted, unsalted", "food_profile": "peanuts"}, "Peanuts"),
+        )
+        for product, expected in cases:
+            with self.subTest(product=product["product_name"]):
+                self.assertEqual(meal_display_name(product), expected)
+                self.assertIn(",", product["product_name"])
+
+    def test_vegan_week_uses_only_basket_foods_with_readable_varied_meals(self):
+        basket = self.basket("oats", "banana", "lentils", "chickpeas", "brown_rice", "potato", "broccoli")
+        plan = build_meal_plan(basket, people=2, days=7, diet="vegan")
+        source_ids = {item["product_id"] for item in basket}
+        titles = [meal["title"] for day in plan["days"] for meal in day["meals"]]
+        self.assertTrue(set(plan["products_used"]) <= source_ids)
+        self.assertFalse(any(term in title.lower() for title in titles for term in (", raw", ", dry", "uncooked", "long-grain", "prepared from")))
+        main_titles = []
+        for day in plan["days"]:
+            by_type = {meal["meal_type"]: meal for meal in day["meals"]}
+            if "lunch" in by_type and "dinner" in by_type:
+                self.assertNotEqual(by_type["lunch"]["title"], by_type["dinner"]["title"])
+                main_titles.extend((by_type["lunch"]["title"], by_type["dinner"]["title"]))
+        self.assertGreaterEqual(len(set(main_titles)), 4)
+        self.assertFalse(any("salmon" in title.lower() or "egg" in title.lower() for title in titles))
+
+    def test_diets_filter_fish_and_pescatarian_uses_it_only_when_present(self):
+        basket = self.basket("oats", "banana", "lentils", "brown_rice", "potato", "broccoli", "eggs", "salmon")
+        salmon_id = self.catalog["salmon"]["product_id"]
+        for diet in ("vegan", "vegetarian"):
+            with self.subTest(diet=diet):
+                plan = build_meal_plan(basket, people=1, days=7, diet=diet)
+                self.assertNotIn(salmon_id, plan["products_used"])
+        pescatarian = build_meal_plan(basket, people=1, days=7, diet="pescatarian")
+        meals = [meal for day in pescatarian["days"] for meal in day["meals"]]
+        fish_meals = [meal for meal in meals if salmon_id in {item["product_id"] for item in meal["products"]}]
+        self.assertGreater(len(fish_meals), 0)
+        self.assertLess(len(fish_meals), len(meals))
+        self.assertTrue(all("Salmon" in meal["title"] for meal in fish_meals))
+        self.assertGreater(len({meal["title"] for meal in fish_meals}), 1)
+
+        no_fish_basket = [item for item in basket if item["food_profile"] != "salmon"]
+        no_fish = build_meal_plan(no_fish_basket, people=1, days=7, diet="pescatarian")
+        self.assertNotIn(salmon_id, no_fish["products_used"])
+        self.assertFalse(any("salmon" in meal["title"].lower() for day in no_fish["days"] for meal in day["meals"]))
 
 
 class MealPlanPageTests(unittest.TestCase):
