@@ -225,7 +225,9 @@ try {
   check(await evaluate("window.feedbackPosts.every(p=>Object.keys(p).sort().join(',')==='comment,rating') && document.querySelector('#feedback-comment').value===''"),'Feedback sends no shopping metadata and clears delivered comment');
   await click('#feedback-close');await evaluate('window.fetch=window.feedbackRealFetch');
   await click('#planner-tab');
-  check(await evaluate("document.querySelector('#planner-form').hidden && !document.querySelector('#planner-location-gate').hidden"),'Fresh guest sees location gate instead of form');
+  check(await evaluate("document.querySelector('#planner-form').hidden && !document.querySelector('#planner-location-gate').hidden && document.querySelector('#planner-view .planner-card').classList.contains('is-workflow-locked') && document.querySelector('#planner-location-gate p').textContent==='Find a SNAP-authorized store first to unlock grocery planning.'"),'Fresh guest sees the locked Step 2 state');
+  check(await evaluate("document.querySelector('#planner-tab').classList.contains('is-workflow-locked') && document.querySelector('#planner-tab').getAttribute('aria-label').includes('locked')"),'Locked planner remains visible and accessible in navigation');
+  await layout('#planner-view','planner-locked');
   await evaluate("window.originalLocationGetter=NutriCartLocation.get;NutriCartLocation.get=()=>({});document.dispatchEvent(new Event('nutricart:location-changing'))");
   check(await evaluate("document.querySelector('#planner-form').hidden"),'Empty location object cannot unlock planner');
   await evaluate("NutriCartLocation.get=window.originalLocationGetter");
@@ -263,10 +265,11 @@ try {
   check(await evaluate("NutriCartSettings.getSetting('snapRadius')===5 && !NutriCartSettings.getSetting('rememberSettings')"),'Disabled persistence does not survive reload');
   await evaluate("document.addEventListener('nutricart:plan-updated',e=>window.task16Plan={context:e.detail.context,result:e.detail.result})");
   await click('#meal-plan-tab');
-  check(await evaluate("!document.querySelector('#meal-plan-empty').hidden && document.querySelector('#meal-empty-title').textContent==='Build a grocery basket to plan your meals.'"),'Compact meal empty state');
+  check(await evaluate("!document.querySelector('#meal-plan-empty').hidden && document.querySelector('#meal-empty-title').textContent==='Create your grocery basket first to unlock meal ideas.' && document.querySelector('#create-plan-from-meals').textContent==='Find SNAP Stores'"),'Locked Step 3 explains the earliest required action');
   await layout('#meal-plan-view','meal-empty');
   await click('#shopping-budget-tab');
-  check(await evaluate("document.querySelector('#view-shopping-list').hidden"),'No shopping link without a basket');
+  check(await evaluate("!document.querySelector('#shopping-budget-locked').hidden && document.querySelector('#budget-dashboard').hidden && document.querySelector('#budget-locked-action').textContent==='Find SNAP Stores'"),'Locked Step 4 replaces the empty dashboard with the earliest action');
+  await layout('#shopping-budget-view','budget-locked');
   await click('#home-button');await click('#hero-find-snap');
   check(await evaluate("!document.querySelector('.locator').hidden"),'Start opens SNAP');
   check(await evaluate("document.querySelector('#detected-location').hidden && !document.querySelector('#snap-build-basket') && document.querySelector('.or').getClientRects().length>0"),'Initial SNAP state has no success panel, empty bar or continuation');
@@ -312,9 +315,10 @@ try {
   await until(()=>evaluate("document.querySelectorAll('[name=snap_store]').length>0 && !document.querySelector('#address-button').disabled"),'real SNAP results',90000);
   check(await evaluate("document.querySelectorAll('.store-card').length>1 && document.querySelectorAll('.store-card').length===document.querySelectorAll('[name=snap_store]').length"),'Real USDA results each have a radio control');
   check(await evaluate("!document.querySelector('#snap-build-basket') && !NutriCartStore.get() && !document.querySelector('#snap-plan-transition')"),'No planning button or bottom panel before store selection');
-  await click('#planner-tab');check(await evaluate("!document.querySelector('#planner-form').hidden"),'Valid location permits direct planner without selecting store');await click('#snap-tab');
+  await click('#planner-tab');check(await evaluate("document.querySelector('#planner-form').hidden && !document.querySelector('#planner-location-gate').hidden && NutriCartWorkflow.get().locationReady && !NutriCartWorkflow.get().storeReady"),'Location alone keeps planner locked until a store is selected');await click('#snap-tab');
   await click('.store-card p');
   check(await evaluate("document.querySelector('.store-card').contains(document.querySelector('#snap-build-basket')) && document.querySelectorAll('#snap-build-basket').length===1 && document.querySelector('[name=snap_store]').checked"),'Clicking card details selects it and places one button inside');
+  check(await evaluate("!document.querySelector('#planner-tab').classList.contains('is-workflow-locked') && NutriCartWorkflow.get().locationReady && NutriCartWorkflow.get().storeReady"),'Store selection unlocks Step 2 before navigation');
   if(await evaluate("!document.querySelector('#show-more').hidden")) {
     await evaluate("window.chosenBeforeMore=NutriCartStore.get();document.querySelector('#show-more').scrollIntoView({block:'center',behavior:'instant'})");await delay(200);
     const beforeMore=await evaluate('window.scrollY');
@@ -345,6 +349,7 @@ try {
   await cdp('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
   await click('#snap-build-basket');
   check(await evaluate("document.querySelector('#planner-location-gate').hidden && !document.querySelector('#change-planning-location').hidden && !document.querySelector('#planner-form').hidden"),'Valid location reveals form and subtle change action');
+  check(await evaluate("document.querySelector('#meal-plan-tab').classList.contains('is-workflow-locked') && document.querySelector('#shopping-budget-tab').classList.contains('is-workflow-locked')"),'Steps 3 and 4 remain locked before basket generation');
   await layout('#planner-view','planner-before');
   check(await evaluate("document.querySelector('#planner-essentials').getClientRects().length>0 && !document.querySelector('#planner-form').hidden"),'Planner heading and form visible before generation');
   await fill({budget:'100',people:'2',days:'7',calories:'2000',protein:'50'});await click('input[name=diet][value=omnivore]');
@@ -372,6 +377,7 @@ try {
     await until(()=>evaluate("!document.querySelector('#review-plan').disabled"),'review enabled',60000);
     await click('#review-plan');await click('#generate-plan');
     await until(()=>evaluate("!document.querySelector('#plan-results').hidden && document.querySelector('#grocery-plan-loader').hidden"),'real basket',120000);
+    check(await evaluate("NutriCartWorkflow.get().basketReady && !document.querySelector('#meal-plan-tab').classList.contains('is-workflow-locked') && !document.querySelector('#shopping-budget-tab').classList.contains('is-workflow-locked')"),diet+': basket unlocks Meal Plan and Shopping Budget independently');
     check(await evaluate("document.querySelector('#plan-results-title').textContent==='Your Grocery Basket' && document.querySelector('#planner-essentials').getClientRects().length===0 && !document.querySelector('#basket-location')"),diet+': one result heading/location');
     check(await evaluate(`document.querySelector('#receipt-context').textContent.includes('${diet[0].toUpperCase()+diet.slice(1)}') && document.querySelector('#receipt-context').textContent.includes('3 people') && document.querySelector('#receipt-context').textContent.includes('1 day')`),diet+': compact truthful summary');
   }
@@ -455,7 +461,7 @@ try {
   await click('#planner-tab');await click('#edit-plan');await click('#change-planning-location');
   check(await evaluate("!document.querySelector('.locator').hidden"),'Change location returns to existing SNAP tool');
   await click('#new-location');await click('#planner-tab');
-  check(await evaluate("document.querySelector('#planner-form').hidden && !document.querySelector('#planner-location-gate').hidden"),'Cleared location gates form again without losing purchases');
+  check(await evaluate("document.querySelector('#planner-form').hidden && !document.querySelector('#planner-location-gate').hidden && !NutriCartWorkflow.get().basketReady && document.querySelector('#meal-plan-tab').classList.contains('is-workflow-locked') && document.querySelector('#shopping-budget-tab').classList.contains('is-workflow-locked')"),'Clearing location invalidates the old basket and relocks dependent steps without losing purchases');
   await click('#settings-button');
   for(let index=0;index<4;index++) {
     await evaluate(`(()=>{const category=document.querySelectorAll('.settings-category')[${index}];category.open=false;category.querySelector('summary').focus()})()`);

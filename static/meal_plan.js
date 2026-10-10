@@ -138,7 +138,8 @@
     empty.hidden = currentPlan.groceries.length > 0; ready.hidden = !currentPlan.groceries.length;
     setStatus(changed ? "Your grocery plan changed. Generate a new Meal Plan to match your current basket." : "");
   });
-  document.querySelector("#create-plan-from-meals").addEventListener("click", () => navigate("planner"));
+  const lockedAction = document.querySelector("#create-plan-from-meals");
+  lockedAction.addEventListener("click", () => navigate(lockedAction.dataset.workflowTarget || "planner"));
   document.addEventListener("nutricart:create-meal-plan", createMealPlan);
   document.addEventListener("nutricart:open-saved-meal", event => {
     const saved = event.detail?.data;

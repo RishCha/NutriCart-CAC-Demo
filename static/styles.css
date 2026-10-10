@@ -1703,7 +1703,7 @@ body { overflow-x: hidden; background: var(--cream); background-image: radial-gr
 .brand-mark svg { display: block; width: 100%; height: 100%; }
 #planner-view .planner-card { border: 1px solid var(--line); border-radius: 20px; overflow: hidden; background: #fffdf8; }
 #planner-view .planner-heading { display: block; border: 0; background: transparent; border-radius: 0; padding: 16px 24px 12px; }
-#planner-view .planner-heading > h2 { margin-inline: -24px; margin-bottom: 8px; padding: 0 24px 16px; border-bottom: 1px solid var(--line); }
+#planner-view .planner-heading > h2, #planner-view .planner-heading > .workflow-title-row { margin-inline: -24px; margin-bottom: 8px; padding: 0 24px 16px; border-bottom: 1px solid var(--line); }
 #planner-view .planner-heading:has(#set-planning-location:not([hidden])) { display: block; border-left: 0; }
 #planner-view #planner-form { border: 0; border-radius: 0; box-shadow: none; background: transparent; }
 #planner-view .form-sections > .panel { padding-inline: 24px; }
@@ -1718,7 +1718,7 @@ body { overflow-x: hidden; background: var(--cream); background-image: radial-gr
 .settings-destructive { color: #9b2424; background: #fffafa; border: 1px solid #9b2424; border-radius: 8px; min-height: 44px; padding: 10px 14px; }
 .settings-category summary:focus-visible, .settings-destructive:focus-visible { outline: 3px solid var(--green-dark); outline-offset: 3px; }
 @media (max-width: 600px) { #planner-view .planner-heading, #planner-view .form-sections > .panel { padding-inline: 18px; } }
-@media (max-width: 600px) { #planner-view .planner-heading > h2 { margin-inline: -18px; padding-inline: 18px; } }
+@media (max-width: 600px) { #planner-view .planner-heading > h2, #planner-view .planner-heading > .workflow-title-row { margin-inline: -18px; padding-inline: 18px; } }
 
 .footer-brand { border: 0; background: transparent; padding: 0; text-align: left; }
 
@@ -1803,7 +1803,7 @@ html { scroll-padding-top: var(--header-offset, 190px); }
   .app-view { max-width: 1160px; margin-inline: auto; }
   #planner-view .planner-card { max-width: 900px; margin-inline: auto; box-shadow: 0 4px 18px #17352a08; }
   #planner-view .planner-heading { padding: 22px 28px 12px; }
-  #planner-view .planner-heading > h2 { margin-inline: -28px; padding-inline: 28px; }
+  #planner-view .planner-heading > h2, #planner-view .planner-heading > .workflow-title-row { margin-inline: -28px; padding-inline: 28px; }
   #planner-view #planner-form { max-width: none; padding: 0 28px 24px; }
   #planner-view .form-sections > .panel { padding: 20px 0; }
   #planner-view .section-heading { margin-bottom: 12px; }
@@ -1821,4 +1821,28 @@ html { scroll-padding-top: var(--header-offset, 190px); }
   #planner-view .planner-actions #review-plan { margin: 0; width: min(100%, 340px); min-height: 54px; padding: 12px 20px; white-space: normal; border-radius: 14px; box-shadow: 0 3px 10px #17352a18; }
   #planner-view .planner-actions #review-settings { min-height: 44px; margin: 0; }
   .site-footer { max-width: 1040px; margin: 40px auto 20px; padding: 24px 28px; gap: 16px 28px; }
+}
+
+/* Sequential workflow locks keep every destination discoverable. */
+.workflow-step-label { margin: 0 0 6px; color: var(--muted); font-size: .78rem; font-weight: 700; letter-spacing: .04em; }
+.workflow-title-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.workflow-title-row h1, .workflow-title-row h2 { min-width: 0; margin: 0; }
+.workflow-lock-icon, .nav-lock-indicator { position: relative; display: inline-block; flex: 0 0 auto; width: 15px; height: 12px; margin-top: 5px; border: 2px solid currentColor; border-radius: 3px; color: #68776c; }
+.workflow-lock-icon::before, .nav-lock-indicator::before { content: ""; position: absolute; left: 2px; top: -9px; width: 7px; height: 8px; border: 2px solid currentColor; border-bottom: 0; border-radius: 7px 7px 0 0; }
+.nav-lock-indicator { width: 11px; height: 9px; margin: 2px 0 0 3px; border-width: 1.5px; }
+.nav-lock-indicator::before { left: 1px; top: -7px; width: 6px; height: 6px; border-width: 1.5px; }
+.view-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
+.view-tabs button.is-workflow-locked { color: #647168; }
+.workflow-lock-copy, .workflow-locked-card { color: var(--muted); }
+.workflow-lock-copy p, .workflow-locked-card > p { max-width: 560px; line-height: 1.55; }
+.workflow-lock-copy .primary, .workflow-locked-card .primary { min-height: 46px; white-space: normal; }
+.workflow-locked-card { width: min(100%, 720px); margin: 0 auto; padding: clamp(24px, 5vw, 40px); border: 1px solid #ccd8ce; border-radius: 18px; background: #f7f7f2; box-shadow: 0 4px 16px #17352a0a; }
+.workflow-locked-card .workflow-title-row { color: var(--green-dark); }
+.planner-card.is-workflow-locked { background: #f7f7f2; }
+.meal-empty-state.workflow-lock-copy { padding: clamp(24px, 5vw, 40px); border: 1px solid #ccd8ce; border-top: 0; background: #f7f7f2; }
+[data-high-contrast="true"] .workflow-locked-card, [data-high-contrast="true"] .planner-card.is-workflow-locked, [data-high-contrast="true"] .meal-empty-state.workflow-lock-copy { border-color: #526e5f; background: #fff; }
+@media (max-width: 600px) {
+  .workflow-lock-copy .primary, .workflow-locked-card .primary { width: 100%; }
+  .workflow-locked-card { padding: 22px 18px; }
+  .view-tabs button { gap: 3px; }
 }

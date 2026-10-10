@@ -44,8 +44,8 @@ class MealPlanPageTests(unittest.TestCase):
     def test_navigation_default_and_no_plan_state(self):
         self.assertIn('id="meal-plan-tab"', self.page); self.assertIn('id="meal-plan-view"', self.page)
         self.assertIn('id="snap-tab" class="tab"', self.page)
-        self.assertIn("Build a grocery basket to plan your meals.", self.page); self.assertIn("Build Your Basket →", self.page)
-        self.assertIn('navigate("planner")', self.script)
+        self.assertIn("Create your grocery basket first to unlock meal ideas.", self.page)
+        self.assertIn('lockedAction.dataset.workflowTarget || "planner"', self.script)
 
     def test_create_button_api_and_current_alternative_source(self):
         self.assertIn('id="create-meal-plan"', self.page); self.assertIn('fetch("/api/meal-plan"', self.script)

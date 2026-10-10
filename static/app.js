@@ -27,6 +27,10 @@
   buildButton.textContent = "Build My Grocery Plan";
   let selectedStore = null;
   window.NutriCartStore = {get: () => selectedStore ? {...selectedStore} : null};
+  function publishStore(store) {
+    selectedStore = store ? {...store} : null;
+    document.dispatchEvent(new CustomEvent("nutricart:store-changed", {detail: {store: selectedStore ? {...selectedStore} : null}}));
+  }
   let retailers = [];
   let visibleCount = 0;
   let selectedRadius = 5;
@@ -54,7 +58,7 @@
   function beginLocationChange() {
     locationWarning = "";
     currentLocation = null;
-    selectedStore = null;
+    publishStore(null);
     planningLocation = null;
     buildButton.remove();
     detectedLocation.hidden = true;
@@ -146,7 +150,7 @@
     card.append(heading);
     radio.addEventListener("change", () => {
       if (!radio.checked || searchInProgress) return;
-      selectedStore = {record_id: store.record_id ?? null, name: store.store_name || "Unnamed retailer", city: store.city || "", region: store.state || ""};
+      publishStore({record_id: store.record_id ?? null, name: store.store_name || "Unnamed retailer", city: store.city || "", region: store.state || ""});
       resultsContainer.querySelectorAll(".store-card").forEach(row => row.classList.toggle("is-selected", row.querySelector("input").checked));
       updatePlanningTransition();
     });
@@ -185,7 +189,7 @@
     const controller = new AbortController();
     activeSearchController = controller;
     const requestId = ++searchRequestId;
-    selectedStore = null;
+    publishStore(null);
     resultsContainer.replaceChildren();
     resultsSection.hidden = true;
     setSearchLoading(true);

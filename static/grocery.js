@@ -13,6 +13,17 @@
   const budgetView = document.querySelector("#shopping-budget-view");
   const snapView = document.querySelector("#snap-view");
   const form = document.querySelector("#planner-form");
+  const plannerCard = document.querySelector("#planner-view .planner-card");
+  const plannerGate = document.querySelector("#planner-location-gate");
+  const plannerLockIcon = document.querySelector("#planner-lock-icon");
+  const mealLockIcon = document.querySelector("#meal-lock-icon");
+  const mealEmpty = document.querySelector("#meal-plan-empty");
+  const mealReady = document.querySelector("#meal-plan-ready");
+  const mealResults = document.querySelector("#meal-plan-results");
+  const mealLockedAction = document.querySelector("#create-plan-from-meals");
+  const budgetLocked = document.querySelector("#shopping-budget-locked");
+  const budgetLockedAction = document.querySelector("#budget-locked-action");
+  const budgetDashboard = document.querySelector("#budget-dashboard");
 
   // This is the authoritative planner submit path. Bind it before querying or
   // wiring optional cross-feature UI so both button and Enter-key submissions
@@ -53,6 +64,7 @@
   let reviewedInputs = null;
   let currentResult = null;
   let currentPlan = null;
+  let budgetSessionReady = false;
   let activeGeneration = null;
   let alternativeHistory = [];
   let activeView = snapView;
@@ -62,6 +74,77 @@
   let feasibilityRequest = 0;
   let currentFeasibility = null;
   const feasibilityCache = new Map();
+
+  function hasPlanningLocation() {
+    const location = window.NutriCartLocation?.get();
+    return Boolean(location && [location.locality, location.region].some(value => typeof value === "string" && value.trim()));
+  }
+
+  function hasPlanningStore() {
+    const store = window.NutriCartStore?.get();
+    return Boolean(store && (store.record_id !== null || [store.name, store.city, store.region].some(value => typeof value === "string" && value.trim())));
+  }
+
+  function hasCurrentBasket() {
+    return Boolean(currentResult?.groceries?.length);
+  }
+
+  function setTabLock(tab, locked, lockedLabel, unlockedLabel) {
+    tab.classList.toggle("is-workflow-locked", locked);
+    tab.querySelector(".nav-lock-indicator")?.toggleAttribute("hidden", !locked);
+    tab.setAttribute("aria-label", locked ? lockedLabel : unlockedLabel);
+  }
+
+  function nextRequiredStep() {
+    return hasPlanningLocation() && hasPlanningStore()
+      ? {view: "planner", label: "Build My Grocery Plan"}
+      : {view: "snap", label: "Find SNAP Stores"};
+  }
+
+  function updateWorkflowState() {
+    const basketReady = hasCurrentBasket();
+    const plannerReady = basketReady || (hasPlanningLocation() && hasPlanningStore());
+    const budgetReady = basketReady || budgetSessionReady;
+    const next = nextRequiredStep();
+
+    plannerCard.classList.toggle("is-workflow-locked", !plannerReady);
+    plannerLockIcon.hidden = plannerReady;
+    plannerGate.hidden = plannerReady;
+    document.querySelector("#change-planning-location").hidden = !hasPlanningLocation();
+    if (!plannerReady) {
+      form.hidden = true;
+      reviewSection.hidden = true;
+    } else if (!basketReady && resultsSection.hidden && reviewSection.hidden && groceryLoader.hidden) {
+      form.hidden = false;
+    }
+
+    mealLockIcon.hidden = basketReady;
+    if (!basketReady) {
+      mealEmpty.hidden = false;
+      mealReady.hidden = true;
+      mealResults.hidden = true;
+      mealLockedAction.dataset.workflowTarget = next.view;
+      mealLockedAction.textContent = next.label;
+    }
+
+    budgetLocked.hidden = budgetReady;
+    budgetDashboard.hidden = !budgetReady;
+    budgetLockedAction.dataset.workflowTarget = next.view;
+    budgetLockedAction.textContent = next.label;
+
+    setTabLock(plannerTab, !plannerReady, "Grocery Planner, locked until a SNAP-authorized store is selected", "Grocery Planner");
+    setTabLock(mealTab, !basketReady, "Meal Plan, locked until a grocery basket is created", "Meal Plan");
+    setTabLock(budgetTab, !budgetReady, "Shopping Budget, locked until a grocery basket is created", "Shopping Budget");
+  }
+
+  window.NutriCartWorkflow = {
+    get: () => ({
+      locationReady: hasPlanningLocation(),
+      storeReady: hasPlanningStore(),
+      basketReady: hasCurrentBasket(),
+      budgetReady: hasCurrentBasket() || budgetSessionReady,
+    }),
+  };
 
   function wait(milliseconds) {
     return new Promise(resolve => setTimeout(resolve, milliseconds));
@@ -78,6 +161,7 @@
     const tabs = {planner: plannerTab, meal: mealTab, budget: budgetTab, snap: snapTab};
     const nextView = views[name];
     if (viewTransitioning) return;
+    updateWorkflowState();
     document.querySelector("#home").hidden = name !== "home";
     document.querySelector(".locator").hidden = name === "home";
     snapView.setAttribute("aria-labelledby", name === "home" ? "planner-title" : "snap-tab locator-title");
@@ -107,6 +191,7 @@
         plannerBudget: currentPlan?.context?.budget ?? document.querySelector("#budget").value,
         plannedItems: currentResult?.groceries || [],
       }}));
+      updateWorkflowState();
     }
     await wait(transitionDelay(220, 55));
     nextView.classList.remove("reveal-sequence");
@@ -680,7 +765,7 @@
   async function generate(alternative = false, triggerButton = null) {
     stopGeneration();
     const location = window.NutriCartLocation?.get();
-    if (!hasPlanningLocation()) { updatePlanningLocation(); switchView("snap"); return; }
+    if (!hasPlanningLocation() || !hasPlanningStore()) { updatePlanningLocation(); switchView("snap"); return; }
     if (alternative && JSON.stringify(currentPlan?.context?.location) !== JSON.stringify(location)) {
       editPlan();
       plannerError.textContent = "Build a new basket for your selected location.";
@@ -779,35 +864,30 @@
   });
   document.querySelector("#set-planning-location").addEventListener("click", () => switchView("snap"));
   document.querySelector("#change-planning-location").addEventListener("click", () => switchView("snap"));
-  function hasPlanningLocation() {
-    const location = window.NutriCartLocation?.get();
-    return Boolean(location && [location.locality, location.region].some(value => typeof value === "string" && value.trim()));
-  }
   function updatePlanningLocation() {
-    const ready = hasPlanningLocation();
-    document.querySelector("#planner-location-gate").hidden = ready;
-    document.querySelector("#change-planning-location").hidden = !ready;
-    if (!ready) { form.hidden = true; reviewSection.hidden = true; }
-    else if (resultsSection.hidden && reviewSection.hidden && groceryLoader.hidden) form.hidden = false;
+    updateWorkflowState();
   }
-  document.addEventListener("nutricart:location-changing", () => {
-    stopGeneration();
-    updatePlanningLocation();
-  });
-  document.addEventListener("nutricart:location-changed", () => {
-    stopGeneration();
-    updatePlanningLocation();
-    // A new search does not retag an old basket. Purchases are kept by the
-    // budget controller; only its planned-item checklist is invalidated.
+  function invalidateCurrentPlanForLocation() {
+    const hadPlan = hasCurrentBasket();
     currentResult = null;
     currentPlan = null;
     reviewedInputs = null;
     alternativeHistory = [];
+    budgetSessionReady = false;
     resultsSection.hidden = true;
     reviewSection.hidden = true;
-    form.hidden = !hasPlanningLocation();
-    document.dispatchEvent(new CustomEvent("nutricart:plan-updated", {detail: {plannedItems: [], context: {}}}));
+    if (hadPlan) document.dispatchEvent(new CustomEvent("nutricart:plan-updated", {detail: {plannedItems: [], context: {}}}));
     updateSnapPlanContext();
+    updateWorkflowState();
+  }
+  document.addEventListener("nutricart:location-changing", () => {
+    stopGeneration();
+    invalidateCurrentPlanForLocation();
+  });
+  document.addEventListener("nutricart:location-changed", () => {
+    stopGeneration();
+    if (hasCurrentBasket()) invalidateCurrentPlanForLocation();
+    else updateWorkflowState();
     scheduleFeasibility();
   });
   updatePlanningLocation();
@@ -824,6 +904,16 @@
   });
   document.addEventListener("nutricart:navigate", event => {
     if (["planner", "meal", "budget", "snap"].includes(event.detail?.view)) switchView(event.detail.view);
+  });
+  document.addEventListener("nutricart:store-changed", () => {
+    if (hasCurrentBasket()) invalidateCurrentPlanForLocation();
+    else updateWorkflowState();
+  });
+  document.addEventListener("nutricart:plan-updated", updateWorkflowState);
+  document.addEventListener("nutricart:open-saved-shopping", event => {
+    const saved = event.detail?.data;
+    budgetSessionReady = Boolean(saved && ((saved.shoppingItems || []).length || (saved.purchases || []).length));
+    updateWorkflowState();
   });
   document.addEventListener("nutricart:open-saved-plan", event => {
     const saved = event.detail?.data;
@@ -850,6 +940,7 @@
   document.querySelector("#snap-back-to-plan")?.addEventListener("click", () => switchView("planner"));
   document.querySelector("#snap-open-meal")?.addEventListener("click", () => switchView("meal"));
   document.querySelector("#snap-open-budget")?.addEventListener("click", () => switchView("budget"));
+  budgetLockedAction.addEventListener("click", () => switchView(budgetLockedAction.dataset.workflowTarget || "snap"));
   document.querySelectorAll("[data-next-action]").forEach(button => {
     button.addEventListener("click", async () => {
       if (viewTransitioning || button.disabled) return;

@@ -76,8 +76,32 @@ class VercelDemoTests(unittest.TestCase):
         self.assertIn("NutriCart supports plans for 1–31 days.", script)
         self.assertNotIn("People must be a whole number from 1 to 20.", script)
         self.assertNotIn("Days must be a whole number from 1 to 31.", script)
-        self.assertIn('filename=\'grocery.js\', v=\'planner-validation-30\'', (ROOT / "templates" / "index.html").read_text(encoding="utf-8"))
-        self.assertIn("grocery.js?v=planner-validation-30", page)
+        self.assertIn('filename=\'grocery.js\', v=\'locked-steps-32\'', (ROOT / "templates" / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("grocery.js?v=locked-steps-32", page)
+
+    def test_sequential_workflow_locks_are_visible_and_event_driven(self):
+        page = self.client.get("/").text
+        grocery = (ROOT / "static" / "grocery.js").read_text(encoding="utf-8")
+        store_finder = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+        meal = (ROOT / "static" / "meal_plan.js").read_text(encoding="utf-8")
+        for step in ("Step 1 of 4", "Step 2 of 4", "Step 3 of 4", "Step 4 of 4"):
+            self.assertIn(step, page)
+        for message in (
+            "Find a SNAP-authorized store first to unlock grocery planning.",
+            "Create your grocery basket first to unlock meal ideas.",
+            "Create your grocery basket first to start tracking your shopping.",
+        ):
+            self.assertIn(message, page)
+        self.assertIn('id="shopping-budget-locked"', page)
+        self.assertIn('class="nav-lock-indicator"', page)
+        self.assertNotRegex(page, r'id="(?:planner-tab|meal-plan-tab|shopping-budget-tab)"[^>]*disabled')
+        self.assertIn("hasPlanningLocation() && hasPlanningStore()", grocery)
+        self.assertIn('addEventListener("nutricart:store-changed", () => {', grocery)
+        self.assertIn("if (hasCurrentBasket()) invalidateCurrentPlanForLocation();", grocery)
+        self.assertIn('addEventListener("nutricart:plan-updated", updateWorkflowState)', grocery)
+        self.assertIn("invalidateCurrentPlanForLocation()", grocery)
+        self.assertIn('dispatchEvent(new CustomEvent("nutricart:store-changed"', store_finder)
+        self.assertIn('lockedAction.dataset.workflowTarget || "planner"', meal)
 
     def test_account_enabled_mode_preserves_authentication_forms(self):
         with patch.dict(app.app.config, ACCOUNTS_ENABLED=True):

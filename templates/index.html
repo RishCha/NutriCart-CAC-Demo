@@ -6,7 +6,7 @@
   <title>NutriCart</title>
   {% set brand_icon %}{% include "nutricart-logo.svg" %}{% endset %}
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,{{ brand_icon|urlencode }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='desktop-polish-28') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='locked-steps-32') }}">
 </head>
 <body>
   <main class="shell">
@@ -14,9 +14,9 @@
       <button id="home-button" class="brand" type="button" aria-label="NutriCart Home" aria-current="page"><span class="brand-mark" aria-hidden="true">{{ brand_icon }}</span><strong>NutriCart</strong></button>
       <nav class="view-tabs" aria-label="NutriCart tools" role="tablist">
         <button id="snap-tab" class="tab" type="button" role="tab" aria-selected="false" aria-controls="snap-view" data-cursor-context="snap">Find SNAP Stores</button>
-        <button id="planner-tab" class="tab" type="button" role="tab" aria-selected="false" aria-controls="planner-view" data-cursor-context="planner">Grocery Planner</button>
-        <button id="meal-plan-tab" class="tab" type="button" role="tab" aria-selected="false" aria-controls="meal-plan-view" data-cursor-context="meal">Meal Plan</button>
-        <button id="shopping-budget-tab" class="tab" type="button" role="tab" aria-selected="false" aria-controls="shopping-budget-view" data-cursor-context="budget">Shopping Budget</button>
+        <button id="planner-tab" class="tab" type="button" role="tab" aria-selected="false" aria-controls="planner-view" data-cursor-context="planner"><span>Grocery Planner</span><span class="nav-lock-indicator" aria-hidden="true"></span></button>
+        <button id="meal-plan-tab" class="tab" type="button" role="tab" aria-selected="false" aria-controls="meal-plan-view" data-cursor-context="meal"><span>Meal Plan</span><span class="nav-lock-indicator" aria-hidden="true"></span></button>
+        <button id="shopping-budget-tab" class="tab" type="button" role="tab" aria-selected="false" aria-controls="shopping-budget-view" data-cursor-context="budget"><span>Shopping Budget</span><span class="nav-lock-indicator" aria-hidden="true"></span></button>
       </nav>
       <div class="header-utilities">
         <div class="app-settings-utility"{% if account_user %} hidden{% endif %}>
@@ -103,7 +103,7 @@
 
       </div>
       <section class="locator" hidden>
-        <div class="snap-heading"><div><h1 id="locator-title">Find SNAP Stores</h1><p class="intro">Let’s start by finding stores near you.</p></div></div>
+        <div class="snap-heading"><div><p class="workflow-step-label">Step 1 of 4</p><h1 id="locator-title">Find SNAP Stores</h1><p class="intro">Let’s start by finding stores near you.</p></div></div>
         <aside id="snap-plan-context" class="journey-context" hidden aria-labelledby="snap-context-title">
           <div><h2 id="snap-context-title">Find a store, then return to your plan</h2><p id="snap-plan-summary" class="journey-source"></p></div>
           <div class="action-row"><button id="snap-back-to-plan" class="secondary" type="button">Back to Grocery Plan</button><button id="snap-open-meal" class="secondary" type="button">Meal Plan</button><button id="snap-open-budget" class="secondary" type="button">Shopping Budget</button></div>
@@ -119,9 +119,10 @@
     <section id="planner-view" class="app-view" role="tabpanel" tabindex="-1" hidden aria-labelledby="planner-tab">
       <div class="planner-card">
       <div id="planner-essentials" class="planner-heading">
-        <h2>Build Your Basket</h2>
+        <p class="workflow-step-label">Step 2 of 4</p>
+        <div class="workflow-title-row"><span id="planner-lock-icon" class="workflow-lock-icon" aria-hidden="true"></span><h2>Build Your Basket</h2></div>
         <button id="change-planning-location" class="text-button" type="button" hidden>Change location</button>
-        <div id="planner-location-gate"><p>Start by finding stores near you.</p>
+        <div id="planner-location-gate" class="workflow-lock-copy" role="status" aria-live="polite"><p>Find a SNAP-authorized store first to unlock grocery planning.</p>
         <button id="set-planning-location" class="primary" type="button">Find SNAP Stores</button></div>
       </div>
       <form id="planner-form" method="post" action="/" novalidate hidden>
@@ -216,8 +217,8 @@
     </section>
 
     <section id="meal-plan-view" class="app-view meal-plan-view" role="tabpanel" tabindex="-1" hidden aria-labelledby="meal-plan-tab meal-plan-title">
-      <header class="meal-plan-heading"><h1 id="meal-plan-title">Meal Plan</h1></header>
-      <section id="meal-plan-empty" class="meal-empty-state" aria-labelledby="meal-empty-title"><h2 id="meal-empty-title">Build a grocery basket to plan your meals.</h2><button id="create-plan-from-meals" class="primary" type="button">Build Your Basket →</button></section>
+      <header class="meal-plan-heading"><p class="workflow-step-label">Step 3 of 4</p><div class="workflow-title-row"><span id="meal-lock-icon" class="workflow-lock-icon" aria-hidden="true"></span><h1 id="meal-plan-title">Meal Plan</h1></div></header>
+      <section id="meal-plan-empty" class="meal-empty-state workflow-lock-copy" role="status" aria-live="polite" aria-labelledby="meal-plan-title"><p id="meal-empty-title">Create your grocery basket first to unlock meal ideas.</p><button id="create-plan-from-meals" class="primary" type="button">Find SNAP Stores</button></section>
       <section id="meal-plan-ready" class="meal-ready-state" hidden aria-labelledby="meal-ready-title"><h2 id="meal-ready-title">Create meals from your basket</h2><button id="create-meal-plan" class="primary" type="button" data-cursor-effect="create-meal-plan">Create Meal Plan</button></section>
       <p id="meal-plan-status" class="status" role="status" aria-live="polite"></p>
       <section id="meal-plan-results" hidden aria-labelledby="meal-results-title">
@@ -235,9 +236,15 @@
     </section>
 
     <section id="shopping-budget-view" class="app-view budget-view" role="tabpanel" tabindex="-1" hidden aria-labelledby="shopping-budget-tab budget-view-title">
-      <div id="budget-dashboard" class="budget-dashboard">
+      <section id="shopping-budget-locked" class="workflow-locked-card" role="status" aria-live="polite" aria-labelledby="budget-locked-title">
+        <p class="workflow-step-label">Step 4 of 4</p>
+        <div class="workflow-title-row"><span class="workflow-lock-icon" aria-hidden="true"></span><h1 id="budget-locked-title">Shopping Budget</h1></div>
+        <p>Create your grocery basket first to start tracking your shopping.</p>
+        <button id="budget-locked-action" class="primary" type="button">Find SNAP Stores</button>
+      </section>
+      <div id="budget-dashboard" class="budget-dashboard" hidden>
         <header class="budget-session-heading budget-reveal">
-          <div><h1 id="budget-view-title">Shopping Budget</h1></div>
+          <div><p class="workflow-step-label">Step 4 of 4</p><h1 id="budget-view-title">Shopping Budget</h1></div>
         </header>
 
         <div class="shopping-workspace">
@@ -354,10 +361,10 @@
   <script src="{{ url_for('static', filename='settings.js', v='simplified-ui-18') }}" defer></script>
   <script src="{{ url_for('static', filename='password_fields.js', v='account-recovery-1') }}" defer></script>
   <script src="{{ url_for('static', filename='account.js', v='demo-account-28') }}" defer></script>
-  <script src="{{ url_for('static', filename='app.js', v='snap-flow-24') }}" defer></script>
-  <script src="{{ url_for('static', filename='grocery.js', v='planner-validation-30') }}" defer></script>
+  <script src="{{ url_for('static', filename='app.js', v='locked-steps-32') }}" defer></script>
+  <script src="{{ url_for('static', filename='grocery.js', v='locked-steps-32') }}" defer></script>
   <script src="{{ url_for('static', filename='price_comparison.js', v='location-planning-1') }}" defer></script>
-  <script src="{{ url_for('static', filename='meal_plan.js', v='shopping-flow-22') }}" defer></script>
+  <script src="{{ url_for('static', filename='meal_plan.js', v='locked-steps-32') }}" defer></script>
   <script src="{{ url_for('static', filename='budget_tracker.js', v='shopping-flow-22') }}" defer></script>
   {% if vercel_analytics_enabled %}
   <script>
