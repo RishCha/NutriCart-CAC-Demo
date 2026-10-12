@@ -6,7 +6,7 @@
   <title>NutriCart</title>
   {% set brand_icon %}{% include "nutricart-logo.svg" %}{% endset %}
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,{{ brand_icon|urlencode }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='background-44') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='feedback-46') }}">
 </head>
 <body>
   <main class="shell">
@@ -359,21 +359,23 @@
     </footer>
   </main>
   <button id="feedback-desktop" type="button" data-open-feedback aria-haspopup="dialog">Feedback</button>
-  <dialog id="feedback-dialog" aria-labelledby="feedback-title" aria-describedby="feedback-note">
+  <dialog id="feedback-dialog" aria-labelledby="feedback-title" aria-describedby="feedback-support">
     <button id="feedback-close" type="button" aria-label="Close feedback">&times;</button>
     <h2 id="feedback-title" tabindex="-1">How was your NutriCart experience?</h2>
+    <p id="feedback-support">Your feedback helps make NutriCart better.</p>
     <div id="feedback-rating"><button type="button" data-rating="positive" aria-label="Thumbs up">&#128077;</button><button type="button" data-rating="negative" aria-label="Thumbs down">&#128078;</button></div>
     <form id="feedback-form" hidden>
       <label for="feedback-comment">Comment (optional)</label>
-      <textarea id="feedback-comment" maxlength="1000" rows="3" aria-describedby="feedback-privacy"></textarea>
-      <p id="feedback-privacy" class="help">Please leave out personal and shopping details.</p>
-      <div class="action-row"><button id="feedback-back" type="button" class="secondary">Back</button><button id="feedback-submit" type="submit" class="primary" disabled>Submit Feedback</button></div>
-      <p id="feedback-status" role="status" aria-live="polite"></p>
+      <textarea id="feedback-comment" maxlength="1000" rows="3"></textarea>
+      <div class="feedback-actions"><button id="feedback-back" type="button" class="secondary">Back</button><button id="feedback-skip" type="button" class="feedback-skip">Skip</button><button id="feedback-submit" type="submit" class="primary" disabled>Submit Feedback</button></div>
     </form>
-    <p id="feedback-thanks" role="status" hidden>Thanks for helping us improve NutriCart!</p>
-    <p id="feedback-note">We value your feedback.</p>
+    <p id="feedback-status" role="status" aria-live="polite"></p>
+    <section id="feedback-thanks" role="status" hidden>
+      <span class="feedback-success-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="m5 12.5 4.25 4.25L19 7"></path></svg></span>
+      <button id="feedback-done" type="button" class="primary">Done</button>
+    </section>
   </dialog>
-  <script src="{{ url_for('static', filename='feedback.js', v='feedback-23') }}" defer></script>
+  <script src="{{ url_for('static', filename='feedback.js', v='feedback-46') }}" defer></script>
   <script src="{{ url_for('static', filename='settings.js', v='simplified-ui-18') }}" defer></script>
   <script src="{{ url_for('static', filename='password_fields.js', v='account-recovery-1') }}" defer></script>
   <script src="{{ url_for('static', filename='account.js', v='demo-account-28') }}" defer></script>

@@ -100,7 +100,34 @@ class VercelDemoTests(unittest.TestCase):
         self.assertIn("width: min(100%, 800px)", styles)
         self.assertIn("#meal-plan-ready .primary", styles)
         self.assertNotIn("min-height: 330px", styles.split("/* Compact unlocked Meal Plan action state. */", 1)[1])
-        self.assertIn("styles.css?v=background-44", page)
+        self.assertIn("styles.css?v=feedback-46", page)
+
+    def test_feedback_modal_has_optional_two_stage_actions(self):
+        page = self.client.get("/").text
+        script = (ROOT / "static" / "feedback.js").read_text(encoding="utf-8")
+        styles = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
+        for text in (
+            "How was your NutriCart experience?",
+            "Your feedback helps make NutriCart better.",
+            "Comment (optional)",
+        ):
+            self.assertIn(text, page)
+        self.assertNotIn("Please leave out personal and shopping details.", page)
+        self.assertNotIn("id=\"feedback-note\"", page)
+        for identifier in ("feedback-skip", "feedback-done", "feedback-support"):
+            self.assertIn(f'id="{identifier}"', page)
+        for text in (
+            "What did you like about NutriCart?",
+            "What could we improve?",
+            "We value your feedback.",
+            "Thank you for helping us improve NutriCart!",
+            "Your feedback has been submitted.",
+        ):
+            self.assertIn(text, script)
+        self.assertIn('skip.addEventListener("click", () => deliver(""))', script)
+        self.assertIn("!comment.value.trim()", script)
+        self.assertIn(".feedback-actions", styles)
+        self.assertIn("feedback.js?v=feedback-46", page)
 
     def test_page_background_gradients_do_not_repeat(self):
         styles = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")

@@ -191,13 +191,13 @@ try {
   check(await evaluate("document.querySelector('#account-dialog').hidden && document.activeElement.id==='account-button'"),'Guest account panel supports Escape and focus restoration');
   check(await evaluate("!document.querySelector('#feedback-dialog').open"),'Feedback never opens automatically');
   await click('#feedback-desktop');
-  check(await evaluate("document.querySelector('#feedback-title').textContent==='How was your NutriCart experience?' && document.querySelector('#feedback-form').hidden && document.querySelectorAll('#feedback-rating button').length===2"),'Feedback stage one shows only thumb choices');
+  check(await evaluate("document.querySelector('#feedback-title').textContent==='How was your NutriCart experience?' && document.querySelector('#feedback-support').textContent==='Your feedback helps make NutriCart better.' && document.querySelector('#feedback-form').hidden && document.querySelectorAll('#feedback-rating button').length===2 && !document.querySelector('#feedback-note') && !document.querySelector('#feedback-privacy')"),'Feedback stage one is balanced and concise');
   await click('[data-rating=positive]');
-  check(await evaluate("document.querySelector('#feedback-title').textContent==='What did you like about NutriCart?' && document.querySelector('#feedback-submit').disabled"),'Positive question and unconfigured delivery disabled');
+  check(await evaluate("document.querySelector('#feedback-title').textContent==='What did you like about NutriCart?' && document.querySelector('#feedback-support').textContent==='We value your feedback.' && document.querySelector('#feedback-submit').disabled && document.querySelector('#feedback-skip').disabled"),'Positive follow-up is optional and unconfigured delivery stays disabled');
   await click('#feedback-back');await evaluate("document.querySelector('[data-rating=negative]').focus()");
   await cdp('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13,text:'\r'});await cdp('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
 
-  check(await evaluate("document.querySelector('#feedback-title').textContent==='What could we improve?'"),'Negative question is conditional');
+  check(await evaluate("document.querySelector('#feedback-title').textContent==='What could we improve?' && document.querySelector('#feedback-support').textContent==='We value your feedback.'"),'Negative question is conditional');
   for(const width of [1440,768,390,320]) for(const size of ['normal','large','extra-large']) {
     await cdp('Emulation.setDeviceMetricsOverride',{width,height:800,deviceScaleFactor:1,mobile:width<=390});
     await evaluate(`NutriCartSettings.setSetting('textSize',${JSON.stringify(size)})`);await delay(100);
@@ -216,18 +216,32 @@ try {
   // Controlled transport fixtures never send email. Backend SMTP tests separately verify acknowledgement and TLS.
   await evaluate(`window.feedbackRealFetch=window.fetch;window.feedbackPosts=[];window.feedbackOutcome='fail';window.fetch=(url,opts)=>{
     if(url==='/api/feedback') {
-      if(opts?.method==='POST') {window.feedbackPosts.push(JSON.parse(opts.body));return new Promise(resolve=>setTimeout(()=>resolve(new Response(JSON.stringify(window.feedbackOutcome==='ok'?{delivered:true}:{error:'Delivery failed.'}),{status:window.feedbackOutcome==='ok'?200:502})),300));}
+      if(opts?.method==='POST') {window.feedbackPosts.push(JSON.parse(opts.body));return new Promise(resolve=>setTimeout(()=>resolve(new Response(JSON.stringify(window.feedbackOutcome==='ok'?{delivered:true}:{error:'We could not confirm delivery. Please try again later.'}),{status:window.feedbackOutcome==='ok'?200:502})),300));}
       return Promise.resolve(new Response(JSON.stringify({enabled:true,csrf_token:'test-token'}),{status:200}));
     }
     return window.feedbackRealFetch(url,opts);
   }`);
-  await click('#feedback-desktop');await click('[data-rating=positive]');await fill({'feedback-comment':'Useful tools'});
+  await click('#feedback-desktop');await click('[data-rating=positive]');
+  check(await evaluate("document.querySelector('#feedback-submit').disabled && !document.querySelector('#feedback-skip').disabled"),'Empty comment uses Skip while Submit remains disabled');
+  await fill({'feedback-comment':'   '});
+  check(await evaluate("document.querySelector('#feedback-submit').disabled"),'Whitespace does not enable Submit Feedback');
+  await fill({'feedback-comment':'Useful tools'});
+  check(await evaluate("!document.querySelector('#feedback-submit').disabled"),'Written feedback enables Submit Feedback');
+  await fill({'feedback-comment':''});
+  check(await evaluate("document.querySelector('#feedback-submit').disabled"),'Clearing feedback disables Submit Feedback again');
+  await click('#feedback-back');
+  check(await evaluate("window.feedbackPosts.length===0 && document.querySelector('#feedback-title').textContent==='How was your NutriCart experience?' && document.querySelector('#feedback-form').hidden"),'Back returns without submitting');
+  await click('[data-rating=positive]');await fill({'feedback-comment':'Useful tools'});
   await evaluate("document.querySelector('#feedback-form').requestSubmit();document.querySelector('#feedback-form').requestSubmit()");await delay(500);
-  check(await evaluate("window.feedbackPosts.length===1 && document.querySelector('#feedback-thanks').hidden && document.querySelector('#feedback-comment').value==='Useful tools'"),'Duplicate submit blocked; failed delivery retains draft without thanks');
-  await evaluate("window.feedbackOutcome='ok'");await click('#feedback-submit');
-  check(await evaluate("!document.querySelector('#feedback-thanks').hidden && document.querySelector('#feedback-thanks').textContent==='Thanks for helping us improve NutriCart!' && document.querySelector('#feedback-form').hidden"),'Thanks only after acknowledged delivery');
+  check(await evaluate("window.feedbackPosts.length===1 && document.querySelector('#feedback-thanks').hidden && document.querySelector('#feedback-comment').value==='Useful tools' && document.querySelector('#feedback-title').textContent==='What did you like about NutriCart?' && document.querySelector('#feedback-status').textContent==='We could not confirm delivery. Please try again later.'"),'Duplicate submit blocked; failed delivery retains rating and draft');
+  await evaluate("window.feedbackOutcome='ok'");await click('#feedback-submit');await delay(400);
+  check(await evaluate("!document.querySelector('#feedback-thanks').hidden && document.querySelector('#feedback-title').textContent==='Thank you for helping us improve NutriCart!' && document.querySelector('#feedback-support').textContent==='Your feedback has been submitted.' && document.querySelector('#feedback-form').hidden && document.activeElement.id==='feedback-title'"),'Polished success appears only after acknowledged delivery');
   check(await evaluate("window.feedbackPosts.every(p=>Object.keys(p).sort().join(',')==='comment,rating') && document.querySelector('#feedback-comment').value===''"),'Feedback sends no shopping metadata and clears delivered comment');
-  await click('#feedback-close');await evaluate('window.fetch=window.feedbackRealFetch');
+  await click('#feedback-done');
+  check(await evaluate("!document.querySelector('#feedback-dialog').open && document.activeElement.id==='feedback-desktop'"),'Done closes success and restores focus');
+  await click('#feedback-desktop');await click('[data-rating=negative]');await fill({'feedback-comment':'This text must not be sent by Skip'});await click('#feedback-skip');await delay(400);
+  check(await evaluate("window.feedbackPosts.length===3 && window.feedbackPosts[2].rating==='negative' && window.feedbackPosts[2].comment==='' && !document.querySelector('#feedback-thanks').hidden"),'Skip submits the selected rating with no comment');
+  await click('#feedback-done');await evaluate('window.fetch=window.feedbackRealFetch');
   await click('#planner-tab');
   check(await evaluate("document.querySelector('#planner-form').hidden && document.querySelector('#planner-view .planner-card').hidden && !document.querySelector('#planner-location-gate').hidden && document.querySelector('#planner-location-gate .workflow-locked-message').textContent==='Find a SNAP-authorized store first to unlock grocery planning.'"),'Fresh guest sees the locked Step 2 state');
   check(await evaluate("document.querySelector('#planner-tab').classList.contains('is-workflow-locked') && document.querySelector('#planner-tab').getAttribute('aria-label').includes('locked')"),'Locked planner remains visible and accessible in navigation');
