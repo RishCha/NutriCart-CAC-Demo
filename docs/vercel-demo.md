@@ -19,23 +19,21 @@ Task 22 verification uses `tests/test_task22.py` alongside the existing availabl
 Public sending is disabled by default. Production feedback delivery is available only when all of the following are configured:
 
 1. `NUTRICART_FEEDBACK_ENABLED=true` (the accepted enabled values are `1`, `true`, or `yes`, case-insensitive).
-2. Valid encrypted SMTP configuration.
-3. A valid `NUTRICART_FEEDBACK_TO` recipient.
+2. A valid server-side `RESEND_API_KEY`.
+3. Valid `NUTRICART_FEEDBACK_FROM` and `NUTRICART_FEEDBACK_TO` addresses. The sender must use a Resend-verified sending domain.
 4. Deployment-wide abuse protection, such as the Vercel Firewall rate-limit rule protecting `POST /api/feedback`.
 
-SMTP credentials alone do not enable sending. If the flag or any required delivery setting is missing or malformed, the API reports feedback as disabled and the UI does not submit. Tests use only synthetic configuration and mocked mail transport.
+The flag or provider credentials alone do not enable sending. If any required Resend setting is missing or malformed, the API reports feedback as disabled and the UI does not submit. Keep all values in encrypted Vercel environment settings; do not put them in Git or client JavaScript. Existing SMTP settings are not used by the feedback delivery path.
 
 The current production control is the Vercel Firewall rule `feedback-rate-limit`, limited to three `POST /api/feedback` requests per 600 seconds per IP; excess requests return HTTP 429. Keep an equivalent deployment-wide control in place whenever feedback sending is enabled.
 
-Set NUTRICART_FEEDBACK_TO to the recipient address. Also configure NUTRICART_SMTP_HOST, NUTRICART_SMTP_PORT (587 for STARTTLS or 465 for TLS), NUTRICART_SMTP_FROM, NUTRICART_SMTP_USERNAME, NUTRICART_SMTP_PASSWORD, and a stable FLASK_SECRET_KEY in the hosting dashboard. Do not put credentials in Git or client JavaScript. Feedback uses the port to require encrypted authenticated SMTP. No mail is sent when required configuration is missing or invalid.
+Delivery uses a synchronous HTTPS request to Resend's `POST /emails` endpoint with a five-second timeout, without a local database or background worker. NutriCart reports success only after Resend returns HTTP 200 with a non-empty message ID. That confirms provider acceptance, not inbox placement. Failed, rejected, timed-out, or malformed responses show the existing delivery error; there is no automatic retry.
 
-Delivery runs synchronously within the request, with five-second socket timeouts, without a local database or background worker. Success means the SMTP server accepted the email, not guaranteed inbox placement. Failed or uncertain delivery shows an error; there is no automatic retry. Verify delivery to your chosen mailbox after configuration before announcing availability.
+CSRF, same-origin checks, bounded JSON, fixed sender/recipient and a signed-session cooldown protect normal use. Only the selected rating and optional comment are sent. The cookie cooldown is not a distributed abuse limit: clearing/replaying cookies or parallel requests can bypass it. Keep the deployment-wide rate-limit rule and monitor Resend sending quotas whenever production feedback is enabled.
 
-CSRF, same-origin checks, bounded JSON, fixed sender/recipient and a signed-session cooldown protect normal use. The cookie cooldown is not a distributed abuse limit: clearing/replaying cookies or parallel requests can bypass it. Keep a deployment-wide rate-limit rule for `POST /api/feedback` and provider sending quotas whenever production feedback is enabled. Do not rely on process-local counters in serverless functions.
+Resend email API: https://resend.com/docs/api-reference/emails/send-email
 
-SMTP reference: https://docs.python.org/3/library/smtplib.html
-
-Vercel SMTP support: https://vercel.com/kb/guide/serverless-functions-and-smtp (port 25 is blocked; feedback uses 465/587).
+Resend domain verification: https://resend.com/docs/dashboard/domains/introduction
 
 ## Web Analytics
 

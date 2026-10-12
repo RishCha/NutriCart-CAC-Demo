@@ -213,7 +213,7 @@ try {
   await click('#feedback-close');
   check(await evaluate("document.activeElement.id==='feedback-mobile'"),'Closing restores focus to mobile launcher');
   await cdp('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});await evaluate("NutriCartSettings.setSetting('textSize','normal')");
-  // Controlled transport fixtures never send email. Backend SMTP tests separately verify acknowledgement and TLS.
+  // Controlled transport fixtures never send email. Backend Resend tests separately verify provider acknowledgement over HTTPS.
   await evaluate(`window.feedbackRealFetch=window.fetch;window.feedbackPosts=[];window.feedbackOutcome='fail';window.fetch=(url,opts)=>{
     if(url==='/api/feedback') {
       if(opts?.method==='POST') {window.feedbackPosts.push(JSON.parse(opts.body));return new Promise(resolve=>setTimeout(()=>resolve(new Response(JSON.stringify(window.feedbackOutcome==='ok'?{delivered:true}:{error:'We could not confirm delivery. Please try again later.'}),{status:window.feedbackOutcome==='ok'?200:502})),300));}

@@ -65,6 +65,9 @@ app.config.update(
     # Fail closed unless an operator explicitly enables feedback in the deployment.
     FEEDBACK_ENABLED=os.getenv("NUTRICART_FEEDBACK_ENABLED", "").lower() in {"1", "true", "yes"},
     FEEDBACK_TO=os.getenv("NUTRICART_FEEDBACK_TO", ""),
+    FEEDBACK_FROM=os.getenv("NUTRICART_FEEDBACK_FROM", ""),
+    RESEND_API_KEY=os.getenv("RESEND_API_KEY", ""),
+    # SMTP remains available for local password recovery, not feedback delivery.
     SMTP_HOST=os.getenv("NUTRICART_SMTP_HOST", ""),
     SMTP_PORT=os.getenv("NUTRICART_SMTP_PORT", "587"),
     SMTP_FROM=os.getenv("NUTRICART_SMTP_FROM", ""),
@@ -175,17 +178,24 @@ def submit_feedback():
     try:
         send_feedback(rating, comment.strip(), app.config)
     except FeedbackDeliveryError as error:
-        # Log only allowlisted stage and exception class; never log provider details or input.
-        app.logger.warning(
-            "feedback_delivery_failed stage=%s exception=%s",
-            error.stage,
-            error.exception_class,
-        )
+        # Log only provider, allowlisted stage, and status/class; never provider details or input.
+        if error.status is not None:
+            app.logger.warning(
+                "feedback_delivery_failed provider=resend stage=%s status=%s",
+                error.stage,
+                error.status,
+            )
+        else:
+            app.logger.warning(
+                "feedback_delivery_failed provider=resend stage=%s exception=%s",
+                error.stage,
+                error.exception_class,
+            )
         return jsonify({"error": "We could not confirm delivery. Please try again later."}), 502
     except Exception as error:
         # Defensive boundary for unexpected sender failures, still without exception details.
         app.logger.warning(
-            "feedback_delivery_failed stage=smtp_send exception=%s",
+            "feedback_delivery_failed provider=resend stage=send exception=%s",
             type(error).__name__,
         )
         return jsonify({"error": "We could not confirm delivery. Please try again later."}), 502
