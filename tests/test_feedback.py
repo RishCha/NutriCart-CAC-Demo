@@ -104,11 +104,39 @@ class FeedbackTests(unittest.TestCase):
         self.assertEqual(self.send.call_args.args[1],"")
 
     def test_transport_failure_never_claims_success_or_leaks_error(self):
-        self.send.side_effect=RuntimeError("sensitive-provider-error")
-        result=self.post()
+        secret_values = (
+            "sensitive-provider-error", "private feedback text", "fixture-password",
+            "sender-private@example.test", "recipient-private@example.test",
+        )
+        self.send.side_effect=feedback_delivery.FeedbackDeliveryError(
+            "smtp_login", feedback_delivery.smtplib.SMTPAuthenticationError(535, b"sensitive-provider-error")
+        )
+        with patch.object(app.app.logger, "warning") as warning:
+            result=self.post({"rating":"negative","comment":"private feedback text"})
         self.assertEqual(result.status_code,502)
         self.assertNotIn("delivered",result.json)
-        self.assertNotIn("sensitive-provider-error",result.text)
+        self.assertEqual(result.json["error"], "We could not confirm delivery. Please try again later.")
+        warning.assert_called_once_with(
+            "feedback_delivery_failed stage=%s exception=%s",
+            "smtp_login",
+            "SMTPAuthenticationError",
+        )
+        logged = repr(warning.call_args)
+        for value in secret_values:
+            self.assertNotIn(value, result.text)
+            self.assertNotIn(value, logged)
+
+    def test_unexpected_transport_failure_logs_only_safe_class_and_stage(self):
+        self.send.side_effect=RuntimeError("provider response with private data")
+        with patch.object(app.app.logger, "warning") as warning:
+            result=self.post({"rating":"positive","comment":"do not log this"})
+        self.assertEqual(result.status_code,502)
+        warning.assert_called_once_with(
+            "feedback_delivery_failed stage=smtp_send exception=%s", "RuntimeError"
+        )
+        logged = repr(warning.call_args)
+        self.assertNotIn("provider response with private data", logged)
+        self.assertNotIn("do not log this", logged)
 
     def test_csrf_and_origin_required(self):
         for headers in ({},{"X-CSRF-Token":self.token,"Origin":"https://other.example"},{"Origin":"http://localhost","X-CSRF-Token":"wrong"}):
@@ -147,9 +175,27 @@ class FeedbackTests(unittest.TestCase):
     def test_ssl_and_recipient_refusal(self):
         with patch.dict(app.app.config,SMTP_PORT="465"),patch.object(feedback_delivery.smtplib,"SMTP_SSL") as smtp:
             smtp.return_value.send_message.return_value={"review@example.test":(550,"refused")}
-            with self.assertRaises(feedback_delivery.smtplib.SMTPException):
+            with self.assertRaises(feedback_delivery.FeedbackDeliveryError) as raised:
                 feedback_delivery.send_feedback("positive","",app.app.config)
+            self.assertEqual(raised.exception.stage,"smtp_send")
+            self.assertEqual(raised.exception.exception_class,"SMTPRecipientsRefused")
             smtp.return_value.starttls.assert_not_called()
+
+    def test_transport_stages_are_classified_without_exception_messages(self):
+        cases = (
+            ("smtp_connect", "SMTPConnectError"),
+            ("smtp_starttls", "SSLError"),
+            ("smtp_login", "SMTPAuthenticationError"),
+            ("smtp_send", "SMTPServerDisconnected"),
+        )
+        for stage, class_name in cases:
+            error_type = type(class_name, (Exception,), {})
+            with self.subTest(stage=stage):
+                with self.assertRaises(feedback_delivery.FeedbackDeliveryError) as raised:
+                    feedback_delivery._delivery_step(stage, lambda: (_ for _ in ()).throw(error_type("secret")))
+                self.assertEqual(raised.exception.stage,stage)
+                self.assertEqual(raised.exception.exception_class,class_name)
+                self.assertEqual(str(raised.exception),"")
 
     def test_invalid_configuration_disabled(self):
         for changes in ({"SMTP_PORT":"bad"},{"SMTP_PORT":"25"},{"SMTP_PASSWORD":""},{"FEEDBACK_TO":"a@example.test\nBcc:other@example.test"}):

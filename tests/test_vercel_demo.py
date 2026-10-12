@@ -100,7 +100,17 @@ class VercelDemoTests(unittest.TestCase):
         self.assertIn("width: min(100%, 800px)", styles)
         self.assertIn("#meal-plan-ready .primary", styles)
         self.assertNotIn("min-height: 330px", styles.split("/* Compact unlocked Meal Plan action state. */", 1)[1])
-        self.assertIn("styles.css?v=meal-empty-36", page)
+        self.assertIn("styles.css?v=background-44", page)
+
+    def test_page_background_gradients_do_not_repeat(self):
+        styles = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
+        active_theme = styles.split("/* Consumer redesign:", 1)[1]
+        body_rule = active_theme.split("body {", 1)[1].split("}", 1)[0]
+        self.assertIn("background-repeat: no-repeat", body_rule)
+        self.assertIn("background-position: center top", body_rule)
+        self.assertIn("background-size: 100% max(48rem, 100vh)", body_rule)
+        self.assertIn("radial-gradient(circle at 90% 8%, #dcecdf", body_rule)
+        self.assertIn("radial-gradient(circle at 8% 35%, #f4dfc9", body_rule)
 
     def test_sequential_workflow_locks_are_visible_and_event_driven(self):
         page = self.client.get("/").text

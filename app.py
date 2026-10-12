@@ -17,7 +17,7 @@ from flask.sessions import SecureCookieSessionInterface
 from basket_comparison import compare_kroger_basket_prices
 from account_store import AccountStore, StoreError
 from password_recovery import queue_reset
-from feedback_delivery import delivery_available as feedback_available, send_feedback
+from feedback_delivery import FeedbackDeliveryError, delivery_available as feedback_available, send_feedback
 from meal_planner import build_meal_plan
 from nutrition_references import estimate_household
 from plan_feasibility import feasibility_guidance, minimum_feasible_cost, plan_acceptance
@@ -174,8 +174,20 @@ def submit_feedback():
         return response, 429
     try:
         send_feedback(rating, comment.strip(), app.config)
-    except Exception:
-        # Never return/log provider errors, credentials, recipients, or comments.
+    except FeedbackDeliveryError as error:
+        # Log only allowlisted stage and exception class; never log provider details or input.
+        app.logger.warning(
+            "feedback_delivery_failed stage=%s exception=%s",
+            error.stage,
+            error.exception_class,
+        )
+        return jsonify({"error": "We could not confirm delivery. Please try again later."}), 502
+    except Exception as error:
+        # Defensive boundary for unexpected sender failures, still without exception details.
+        app.logger.warning(
+            "feedback_delivery_failed stage=smtp_send exception=%s",
+            type(error).__name__,
+        )
         return jsonify({"error": "We could not confirm delivery. Please try again later."}), 502
     session["feedback_sent_at"] = now
     return jsonify({"delivered": True})
