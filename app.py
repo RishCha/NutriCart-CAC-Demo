@@ -172,7 +172,7 @@ def submit_feedback():
         return jsonify({"error": "Feedback sending is not configured."}), 503
     now = time.time()
     if now - session.get("feedback_sent_at", 0) < 60:
-        response = jsonify({"error": "Please wait a minute before sending more feedback."})
+        response = jsonify({"error": "Please wait a minute before sending another feedback response."})
         response.headers["Retry-After"] = "60"
         return response, 429
     try:

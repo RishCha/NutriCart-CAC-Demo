@@ -1,4 +1,11 @@
 (() => {
+  const genericFailure = "We could not confirm delivery. Please try again later.";
+  function readableFailure(data) {
+    const readable = value => typeof value === "string" && value.trim() ? value.trim() : "";
+    if (readable(data)) return readable(data);
+    if (!data || typeof data !== "object" || Array.isArray(data)) return genericFailure;
+    return readable(data.error) || readable(data.message) || readable(data.error?.message) || genericFailure;
+  }
   const dialog = document.querySelector("#feedback-dialog");
   const title = document.querySelector("#feedback-title");
   const support = document.querySelector("#feedback-support");
@@ -51,15 +58,20 @@
   async function deliver(feedbackComment) {
     if (!enabled || pending || !rating) return;
     pending = true; status.textContent = "Sending feedback..."; render();
+    let failureMessage = genericFailure;
     try {
       const response = await fetch("/api/feedback", {method: "POST", credentials: "same-origin",
         headers: {"Content-Type": "application/json", "X-CSRF-Token": token},
         body: JSON.stringify({rating, comment: feedbackComment})});
-      const data = await response.json();
-      if (!response.ok || data.delivered !== true) throw new Error(data.error || "We could not confirm delivery. Please try again later.");
+      let data = null;
+      try { data = await response.json(); } catch {}
+      if (!response.ok || data?.delivered !== true) {
+        failureMessage = readableFailure(data);
+        throw new Error();
+      }
       delivered = true; comment.value = ""; status.textContent = "";
       if (dialog.open) title.focus();
-    } catch (error) { status.textContent = error.message || "We could not confirm delivery. Please try again later."; }
+    } catch { status.textContent = failureMessage; }
     finally {
       pending = false;
       if (!dialog.open) { rating = null; delivered = false; comment.value = ""; status.textContent = ""; }

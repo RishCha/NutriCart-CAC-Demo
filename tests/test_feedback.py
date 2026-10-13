@@ -208,7 +208,12 @@ class FeedbackEndpointTests(unittest.TestCase):
 
     def test_session_cooldown(self):
         self.assertEqual(self.post().status_code, 200)
-        self.assertEqual(self.post().status_code, 429)
+        cooldown = self.post()
+        self.assertEqual(cooldown.status_code, 429)
+        self.assertEqual(
+            cooldown.json["error"],
+            "Please wait a minute before sending another feedback response.",
+        )
         self.assertEqual(self.send.call_count, 1)
 
 

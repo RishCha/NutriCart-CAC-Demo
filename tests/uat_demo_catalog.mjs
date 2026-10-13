@@ -214,9 +214,9 @@ try {
   check(await evaluate("document.activeElement.id==='feedback-mobile'"),'Closing restores focus to mobile launcher');
   await cdp('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});await evaluate("NutriCartSettings.setSetting('textSize','normal')");
   // Controlled transport fixtures never send email. Backend Resend tests separately verify provider acknowledgement over HTTPS.
-  await evaluate(`window.feedbackRealFetch=window.fetch;window.feedbackPosts=[];window.feedbackOutcome='fail';window.fetch=(url,opts)=>{
+  await evaluate(`window.feedbackRealFetch=window.fetch;window.feedbackPosts=[];window.feedbackFixture={status:502,body:{error:'We could not confirm delivery. Please try again later.'}};window.fetch=(url,opts)=>{
     if(url==='/api/feedback') {
-      if(opts?.method==='POST') {window.feedbackPosts.push(JSON.parse(opts.body));return new Promise(resolve=>setTimeout(()=>resolve(new Response(JSON.stringify(window.feedbackOutcome==='ok'?{delivered:true}:{error:'We could not confirm delivery. Please try again later.'}),{status:window.feedbackOutcome==='ok'?200:502})),300));}
+      if(opts?.method==='POST') {window.feedbackPosts.push(JSON.parse(opts.body));const fixture=window.feedbackFixture;const responseBody=Object.hasOwn(fixture,'raw')?fixture.raw:JSON.stringify(fixture.body);return new Promise(resolve=>setTimeout(()=>resolve(new Response(responseBody,{status:fixture.status,headers:{'Content-Type':'application/json'}})),300));}
       return Promise.resolve(new Response(JSON.stringify({enabled:true,csrf_token:'test-token'}),{status:200}));
     }
     return window.feedbackRealFetch(url,opts);
@@ -234,13 +234,29 @@ try {
   await click('[data-rating=positive]');await fill({'feedback-comment':'Useful tools'});
   await evaluate("document.querySelector('#feedback-form').requestSubmit();document.querySelector('#feedback-form').requestSubmit()");await delay(500);
   check(await evaluate("window.feedbackPosts.length===1 && document.querySelector('#feedback-thanks').hidden && document.querySelector('#feedback-comment').value==='Useful tools' && document.querySelector('#feedback-title').textContent==='What did you like about NutriCart?' && document.querySelector('#feedback-status').textContent==='We could not confirm delivery. Please try again later.'"),'Duplicate submit blocked; failed delivery retains rating and draft');
-  await evaluate("window.feedbackOutcome='ok'");await click('#feedback-submit');await delay(400);
-  check(await evaluate("!document.querySelector('#feedback-thanks').hidden && document.querySelector('#feedback-title').textContent==='Thank you for helping us improve NutriCart!' && document.querySelector('#feedback-support').textContent==='Your feedback has been submitted.' && document.querySelector('#feedback-form').hidden && document.activeElement.id==='feedback-title'"),'Polished success appears only after acknowledged delivery');
+
+  await evaluate("window.feedbackFixture={status:429,body:{error:'Please wait a minute before sending another feedback response.'}}");await click('#feedback-submit');await delay(400);
+  check(await evaluate("window.feedbackPosts.length===2 && document.querySelector('#feedback-status').textContent==='Please wait a minute before sending another feedback response.' && !document.querySelector('#feedback-status').textContent.includes('[object Object]') && document.querySelector('#feedback-comment').value==='Useful tools' && document.querySelector('#feedback-title').textContent==='What did you like about NutriCart?' && document.querySelector('#feedback-thanks').hidden"),'Cooldown shows readable copy and preserves rating and comment');
+
+  await evaluate("window.feedbackFixture={status:429,body:{error:{message:'Nested feedback message.'}}};document.querySelector('#feedback-form').requestSubmit();document.querySelector('#feedback-form').requestSubmit()");await delay(500);
+  check(await evaluate("window.feedbackPosts.length===3 && document.querySelector('#feedback-status').textContent==='Nested feedback message.' && !document.querySelector('#feedback-status').textContent.includes('[object Object]') && document.querySelector('#feedback-comment').value==='Useful tools'"),'Nested error object is normalized and repeated clicking stays single-flight');
+
+  await evaluate("window.feedbackFixture={status:400,body:{message:'Plain message response.'}}");await click('#feedback-submit');await delay(400);
+  check(await evaluate("window.feedbackPosts.length===4 && document.querySelector('#feedback-status').textContent==='Plain message response.' && document.querySelector('#feedback-comment').value==='Useful tools'"),'Message response is readable and preserves the draft');
+
+  await evaluate("window.feedbackFixture={status:400,body:'Plain string response.'}");await click('#feedback-submit');await delay(400);
+  check(await evaluate("window.feedbackPosts.length===5 && document.querySelector('#feedback-status').textContent==='Plain string response.' && document.querySelector('#feedback-comment').value==='Useful tools'"),'Plain string response is readable');
+
+  await evaluate("window.feedbackFixture={status:502,raw:'not-json'}");await click('#feedback-submit');await delay(400);
+  check(await evaluate("window.feedbackPosts.length===6 && document.querySelector('#feedback-status').textContent==='We could not confirm delivery. Please try again later.' && !document.querySelector('#feedback-status').textContent.includes('[object Object]') && document.querySelector('#feedback-comment').value==='Useful tools' && document.querySelector('#feedback-thanks').hidden"),'Malformed response uses generic fallback and preserves state');
+
+  await evaluate("window.feedbackFixture={status:200,body:{delivered:true}}");await click('#feedback-submit');await delay(400);
+  check(await evaluate("window.feedbackPosts.length===7 && !document.querySelector('#feedback-thanks').hidden && document.querySelector('#feedback-title').textContent==='Thank you for helping us improve NutriCart!' && document.querySelector('#feedback-support').textContent==='Your feedback has been submitted.' && document.querySelector('#feedback-form').hidden && document.activeElement.id==='feedback-title'"),'Polished success appears only after acknowledged delivery');
   check(await evaluate("window.feedbackPosts.every(p=>Object.keys(p).sort().join(',')==='comment,rating') && document.querySelector('#feedback-comment').value===''"),'Feedback sends no shopping metadata and clears delivered comment');
   await click('#feedback-done');
   check(await evaluate("!document.querySelector('#feedback-dialog').open && document.activeElement.id==='feedback-desktop'"),'Done closes success and restores focus');
   await click('#feedback-desktop');await click('[data-rating=negative]');await fill({'feedback-comment':'This text must not be sent by Skip'});await click('#feedback-skip');await delay(400);
-  check(await evaluate("window.feedbackPosts.length===3 && window.feedbackPosts[2].rating==='negative' && window.feedbackPosts[2].comment==='' && !document.querySelector('#feedback-thanks').hidden"),'Skip submits the selected rating with no comment');
+  check(await evaluate("window.feedbackPosts.length===8 && window.feedbackPosts[7].rating==='negative' && window.feedbackPosts[7].comment==='' && !document.querySelector('#feedback-thanks').hidden"),'Skip submits the selected rating with no comment');
   await click('#feedback-done');await evaluate('window.fetch=window.feedbackRealFetch');
   await click('#planner-tab');
   check(await evaluate("document.querySelector('#planner-form').hidden && document.querySelector('#planner-view .planner-card').hidden && !document.querySelector('#planner-location-gate').hidden && document.querySelector('#planner-location-gate .workflow-locked-message').textContent==='Find a SNAP-authorized store first to unlock grocery planning.'"),'Fresh guest sees the locked Step 2 state');
