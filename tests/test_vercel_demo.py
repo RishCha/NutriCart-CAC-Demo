@@ -128,9 +128,11 @@ class VercelDemoTests(unittest.TestCase):
         self.assertIn("!comment.value.trim()", script)
         self.assertIn("function readableFailure(data)", script)
         self.assertIn("let failureMessage = genericFailure", script)
+        self.assertIn("const cooldownFailure", script)
+        self.assertIn("response.status === 429", script)
         self.assertNotIn("new Error(data.error", script)
         self.assertIn(".feedback-actions", styles)
-        self.assertIn("feedback.js?v=feedback-50", page)
+        self.assertIn("feedback.js?v=feedback-52", page)
 
     def test_page_background_gradients_do_not_repeat(self):
         styles = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")

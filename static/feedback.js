@@ -1,5 +1,6 @@
 (() => {
   const genericFailure = "We could not confirm delivery. Please try again later.";
+  const cooldownFailure = "Please wait a minute before sending another feedback response.";
   function readableFailure(data) {
     const readable = value => typeof value === "string" && value.trim() ? value.trim() : "";
     if (readable(data)) return readable(data);
@@ -63,6 +64,10 @@
       const response = await fetch("/api/feedback", {method: "POST", credentials: "same-origin",
         headers: {"Content-Type": "application/json", "X-CSRF-Token": token},
         body: JSON.stringify({rating, comment: feedbackComment})});
+      if (response.status === 429) {
+        failureMessage = cooldownFailure;
+        throw new Error();
+      }
       let data = null;
       try { data = await response.json(); } catch {}
       if (!response.ok || data?.delivered !== true) {
