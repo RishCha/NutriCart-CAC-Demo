@@ -100,6 +100,83 @@ class MealPlanQualityTests(unittest.TestCase):
         self.assertNotIn(salmon_id, no_fish["products_used"])
         self.assertFalse(any("salmon" in meal["title"].lower() for day in no_fish["days"] for meal in day["meals"]))
 
+    def test_meals_have_two_to_four_basket_based_directions(self):
+        basket = self.basket("oats", "banana", "lentils", "brown_rice", "broccoli", "peanuts")
+        plan = build_meal_plan(basket, people=2, days=7, diet="vegan")
+        source_names = {meal_display_name(item) for item in basket}
+        for day in plan["days"]:
+            for meal in day["meals"]:
+                self.assertGreaterEqual(len(meal["directions"]), 2)
+                self.assertLessEqual(len(meal["directions"]), 4)
+                meal_names = {meal_display_name(item) for item in basket
+                              if item["product_id"] in {product["product_id"] for product in meal["products"]}}
+                self.assertTrue(meal_names <= source_names)
+                self.assertTrue(all(name in " ".join(meal["directions"]) for name in meal_names))
+                absent_names = {meal_display_name(item) for item in self.catalog.values()} - source_names
+                self.assertFalse(any(name in " ".join(meal["directions"]) for name in absent_names))
+                self.assertFalse(any(word in " ".join(meal["directions"]).lower()
+                                     for word in ("oil", "seasoning", "sauce", "tortilla")))
+
+    def test_vegan_templates_cover_varied_structures_when_basket_supports_them(self):
+        basket = self.basket("oats", "banana", "apple", "lentils", "black_beans", "brown_rice",
+                             "potato", "broccoli", "carrots", "peanuts")
+        plan = build_meal_plan(basket, people=2, days=7, diet="vegan")
+        main_meals = [meal for day in plan["days"] for meal in day["meals"]
+                      if meal["meal_type"] in {"lunch", "dinner"}]
+        titles = [meal["title"] for meal in main_meals]
+        self.assertTrue(any("Bowl" in title for title in titles))
+        self.assertTrue(any("Soup" in title for title in titles))
+        self.assertTrue(any("Skillet" in title for title in titles))
+        self.assertTrue(any("Plate" in title for title in titles))
+        signatures = {tuple(product["product_id"] for product in meal["products"]) for meal in main_meals}
+        self.assertGreaterEqual(len(set(titles)), 6)
+        self.assertGreaterEqual(len(signatures), 6)
+        daily_signatures = [{meal["meal_type"]: (meal["title"], tuple(product["product_id"] for product in meal["products"]))
+                             for meal in day["meals"]} for day in plan["days"]]
+        for previous, current in zip(daily_signatures, daily_signatures[1:]):
+            self.assertTrue(any(previous.get(kind) != current.get(kind) for kind in set(previous) | set(current)))
+
+    def test_limited_basket_stays_usable_without_inventing_foods(self):
+        basket = self.basket("lentils")
+        plan = build_meal_plan(basket, people=1, days=4, diet="vegan")
+        meals = [meal for day in plan["days"] for meal in day["meals"]]
+        self.assertTrue(meals)
+        self.assertEqual({product["product_id"] for meal in meals for product in meal["products"]},
+                         {basket[0]["product_id"]})
+        self.assertTrue(all(2 <= len(meal["directions"]) <= 4 for meal in meals))
+
+    def test_pescatarian_directions_apply_safe_fish_instruction(self):
+        basket = self.basket("lentils", "brown_rice", "broccoli", "salmon")
+        plan = build_meal_plan(basket, people=1, days=7, diet="pescatarian")
+        fish_meals = [meal for day in plan["days"] for meal in day["meals"]
+                      if any(product["product_id"] == self.catalog["salmon"]["product_id"] for product in meal["products"])]
+        self.assertTrue(fish_meals)
+        self.assertTrue(all(any("safe internal temperature" in step for step in meal["directions"])
+                            for meal in fish_meals))
+
+    def test_vegan_and_vegetarian_rules_remain_strict(self):
+        profiles = ("oats", "banana", "lentils", "brown_rice", "broccoli", "eggs",
+                    "milk_2_percent", "plain_yogurt", "salmon", "chicken_breast")
+        basket = self.basket(*profiles)
+        animal_ids = {self.catalog[profile]["product_id"] for profile in
+                      ("eggs", "milk_2_percent", "plain_yogurt", "salmon", "chicken_breast")}
+        meat_fish_ids = {self.catalog[profile]["product_id"] for profile in ("salmon", "chicken_breast")}
+        vegan = build_meal_plan(basket, people=1, days=7, diet="vegan")
+        vegetarian = build_meal_plan(basket, people=1, days=7, diet="vegetarian")
+        self.assertTrue(animal_ids.isdisjoint(vegan["products_used"]))
+        self.assertTrue(meat_fish_ids.isdisjoint(vegetarian["products_used"]))
+        self.assertIn(self.catalog["eggs"]["product_id"], vegetarian["products_used"])
+        self.assertIn(self.catalog["plain_yogurt"]["product_id"], vegetarian["products_used"])
+        self.assertTrue(any("Yogurt with" in meal["title"] for day in vegetarian["days"] for meal in day["meals"]))
+        self.assertTrue(any("Yogurt" in meal["title"] and meal["meal_type"] == "snack"
+                            for day in vegetarian["days"] for meal in day["meals"]))
+
+        without_yogurt = self.basket("oats", "banana", "eggs", "brown_rice", "broccoli")
+        vegetarian_without_yogurt = build_meal_plan(without_yogurt, people=1, days=7, diet="vegetarian")
+        self.assertNotIn(self.catalog["plain_yogurt"]["product_id"], vegetarian_without_yogurt["products_used"])
+        self.assertFalse(any("yogurt" in meal["title"].lower()
+                             for day in vegetarian_without_yogurt["days"] for meal in day["meals"]))
+
 
 class MealPlanPageTests(unittest.TestCase):
     @classmethod
@@ -166,6 +243,9 @@ class MealPlanPageTests(unittest.TestCase):
         self.assertIn('node("li", "", product.product_name)', self.script)
         self.assertNotIn('[data-meal-view="compact"] .meal-product-details { display: none; }', styles)
         self.assertNotIn('[data-meal-view="compact"] .meal-card h4 { display: none;', styles)
+        self.assertIn('node("h5", "", "How to make it")', self.script)
+        self.assertIn("Array.isArray(meal.directions)", self.script)
+        self.assertIn(".meal-directions", styles)
 
     def test_long_plan_rotation_is_explicit(self):
         self.assertIn("Repeat this ${data.rotation_days}-day rotation for your ${data.days_requested}-day plan.", self.script)

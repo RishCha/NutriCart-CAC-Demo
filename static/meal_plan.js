@@ -72,7 +72,17 @@
     const list = node("ul");
     products.forEach(product => list.append(node("li", "", product.product_name)));
     details.append(list);
-    article.append(details); return article;
+    article.append(details);
+    const preparationSteps = Array.isArray(meal.directions) ? meal.directions.filter(step => typeof step === "string" && step.trim()) : [];
+    if (preparationSteps.length) {
+      const directions = node("section", "meal-directions");
+      directions.append(node("h5", "", "How to make it"));
+      const steps = node("ol");
+      preparationSteps.forEach(step => steps.append(node("li", "", step)));
+      directions.append(steps);
+      article.append(directions);
+    }
+    return article;
   }
 
   function render(data) {

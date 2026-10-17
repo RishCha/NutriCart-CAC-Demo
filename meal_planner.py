@@ -15,7 +15,8 @@ from classify_catalog import optimizer_product_is_supported
 PROFILE_ROLES = {
     "oats": {"breakfast"},
     "eggs": {"breakfast", "protein"},
-    "milk_2_percent": {"breakfast", "dairy"},
+    "milk_2_percent": {"breakfast", "dairy"}, "plain_yogurt": {"breakfast", "dairy", "snack"},
+    "soy_beverage": {"breakfast", "dairy"},
     "cheddar_cheese": {"dairy"},
     "apple": {"breakfast", "fruit", "snack"},
     "banana": {"breakfast", "fruit", "snack"},
@@ -139,6 +140,33 @@ def _pick(items: list[dict], index: int, offset: int = 0) -> dict | None:
     return items[(index + offset) % len(items)]
 
 
+def _directions(products: list[dict]) -> list[str]:
+    """Return short preparation steps that mention only foods in this meal."""
+    steps = []
+    for product in products:
+        name = meal_display_name(product)
+        profile = str(product.get("food_profile") or "")
+        roles = classify_meal_role(product)
+        if "fish" in roles or profile == "chicken_breast":
+            steps.append(f"Cook {name} thoroughly until it reaches a safe internal temperature.")
+        elif profile == "eggs":
+            steps.append(f"Cook {name} thoroughly.")
+        elif profile in {"oats", "brown_rice", "white_rice", "pasta", "black_beans", "chickpeas", "kidney_beans", "lentils", "pinto_beans"}:
+            steps.append(f"Prepare {name} according to the package directions.")
+        elif "vegetable" in roles or profile == "tofu":
+            steps.append(f"Cook {name} until ready to eat.")
+        else:
+            steps.append(f"Prepare {name} as needed.")
+    names = [meal_display_name(product) for product in products]
+    if len(steps) < 4:
+        if len(names) > 1:
+            food_list = f"{names[0]} and {names[1]}" if len(names) == 2 else f"{', '.join(names[:-1])}, and {names[-1]}"
+            steps.append(f"Combine {food_list}.")
+        else:
+            steps.append(f"Serve {names[0]}.")
+    return steps[:4]
+
+
 def _meal(kind: str, products: list[dict | None], variant: int = 0) -> dict | None:
     unique = []
     seen = set()
@@ -152,10 +180,16 @@ def _meal(kind: str, products: list[dict | None], variant: int = 0) -> dict | No
     profiles = [str(item.get("food_profile") or "") for item in unique]
     if kind == "Breakfast" and "oats" in profiles:
         fruit = next((meal_display_name(item) for item in unique if "fruit" in classify_meal_role(item)), "")
-        title = "Oatmeal" + (f" with {fruit}" if fruit else "")
+        if fruit and variant % 2:
+            title = f"{fruit} Oatmeal Bowl"
+        else:
+            title = "Oatmeal" + (f" with {fruit}" if fruit else "")
     elif kind == "Breakfast" and "eggs" in profiles:
         vegetable = next((meal_display_name(item) for item in unique if "vegetable" in classify_meal_role(item)), "")
         title = "Eggs" + (f" with {vegetable}" if vegetable else "")
+    elif kind == "Breakfast" and "plain_yogurt" in profiles:
+        fruit = next((meal_display_name(item) for item in unique if "fruit" in classify_meal_role(item)), "")
+        title = "Yogurt" + (f" with {fruit}" if fruit else "")
     elif kind == "Breakfast" and "peanut_butter" in profiles and "whole_wheat_bread" in profiles:
         title = "Peanut Butter Toast"
     elif kind in {"Lunch", "Dinner"}:
@@ -172,21 +206,34 @@ def _meal(kind: str, products: list[dict | None], variant: int = 0) -> dict | No
                 title = protein_name + (f" with {companion_name}" if companion_name else "")
         elif protein and "legume" in classify_meal_role(protein):
             if companion_name:
-                title = f"{protein_name} {companion_name} Soup" if variant % 2 else f"{protein_name} & {companion_name} Bowl"
+                patterns = (
+                    f"{protein_name} & {companion_name} Bowl",
+                    f"{protein_name} {companion_name} Soup",
+                    f"{protein_name} & {meal_title_name(vegetable)} Skillet" if vegetable else f"{protein_name} {companion_name} Skillet",
+                    f"{protein_name} & {companion_name} Plate",
+                )
+                title = patterns[variant % len(patterns)]
             else:
                 title = f"{protein_name} Bowl"
         elif protein:
             title = protein_name + (f" & {companion_name} Bowl" if variant % 2 and companion_name else f" with {companion_name}" if companion_name else "")
         elif grain and vegetable:
-            title = f"{meal_title_name(vegetable)} & {meal_title_name(grain)} Bowl"
+            patterns = (
+                f"{meal_title_name(vegetable)} & {meal_title_name(grain)} Bowl",
+                f"{meal_title_name(grain)} & {meal_title_name(vegetable)} Plate",
+                f"{meal_title_name(vegetable)} {meal_title_name(grain)} Skillet",
+            )
+            title = patterns[variant % len(patterns)]
         else:
             title = f"{meal_title_name(unique[0])} Bowl"
+    elif kind == "Snack" and len(names) > 1:
+        title = f"{' & '.join(names)} Snack"
     else:
         title = " & ".join(names)
     return {"meal_type": kind.lower(), "title": title, "products": [
         {"product_id": str(item.get("product_id") or item.get("catalog_id")), "product_name": item.get("product_name")}
         for item in unique
-    ]}
+    ], "directions": _directions(unique)}
 
 
 def build_daily_meals(groceries: list[dict], day_index: int, diet: str = "omnivore") -> list[dict]:
@@ -195,12 +242,15 @@ def build_daily_meals(groceries: list[dict], day_index: int, diet: str = "omnivo
     for item in groceries:
         for role in classify_meal_role(item):
             roles[role].append(item)
-    breakfast_base = _pick([x for x in roles["breakfast"] if x.get("food_profile") in {"oats", "eggs", "peanut_butter", "whole_wheat_bread"}], day_index)
+    breakfast_base = _pick([x for x in roles["breakfast"] if x.get("food_profile") in {"oats", "eggs", "plain_yogurt", "peanut_butter", "whole_wheat_bread"}], day_index)
     if (breakfast_base or {}).get("food_profile") == "eggs":
         breakfast_companions = [_pick(roles["vegetable"], day_index)]
     elif (breakfast_base or {}).get("food_profile") == "peanut_butter":
         bread = [item for item in roles["grain"] if item.get("food_profile") == "whole_wheat_bread"]
         breakfast_companions = [_pick(bread, day_index), _pick(roles["fruit"], day_index)]
+    elif (breakfast_base or {}).get("food_profile") == "oats":
+        breakfast_drinks = [item for item in roles["dairy"] if item.get("food_profile") in {"milk_2_percent", "soy_beverage"}]
+        breakfast_companions = [_pick(roles["fruit"], day_index), _pick(breakfast_drinks, day_index)]
     else:
         breakfast_companions = [_pick(roles["fruit"], day_index)]
     breakfast = _meal("Breakfast", [breakfast_base, *breakfast_companions], day_index)
@@ -228,8 +278,8 @@ def build_daily_meals(groceries: list[dict], day_index: int, diet: str = "omnivo
             if candidate and candidate["title"] != lunch["title"]:
                 dinner = candidate
                 break
-    snack_pool = roles["fruit"] + [item for item in roles["snack"] if item not in roles["fruit"]]
-    snack = _meal("Snack", [_pick(snack_pool, day_index, 1)])
+    snack_extras = [item for item in roles["snack"] if item not in roles["fruit"]]
+    snack = _meal("Snack", [_pick(roles["fruit"], day_index, 1), _pick(snack_extras, day_index)], day_index)
     meals = [meal for meal in (breakfast, lunch, dinner, snack) if meal]
     if not meals and groceries:
         meals = [_meal("Meal", [_pick(groceries, day_index)])]
@@ -273,11 +323,13 @@ def build_meal_plan(groceries: list[dict], people: int, days: int, diet: str = "
     rotation_days = min(days, 7)
     daily = _daily_nutrition(eligible, people, days)
     normalized_targets = dict(targets or {})
+    planned_days = [{"day": index + 1, "meals": build_daily_meals(eligible, index, diet), "nutrition": daily}
+                    for index in range(rotation_days)]
     return {
         "days_requested": days, "rotation_days": rotation_days, "repeats": days > rotation_days,
-        "days": [{"day": index + 1, "meals": build_daily_meals(eligible, index, diet), "nutrition": daily} for index in range(rotation_days)],
+        "days": planned_days,
         "nutrition_insights": build_nutrition_insights(daily, normalized_targets, nutrition_focus, eligible),
-        "products_used": sorted({product["product_id"] for day in range(rotation_days) for meal in build_daily_meals(eligible, day, diet) for product in meal["products"]}),
+        "products_used": sorted({product["product_id"] for day in planned_days for meal in day["meals"] for product in meal["products"]}),
         "portion_note": "Meal suggestions are based on the planned basket and are not exact portion allocations.",
         "disclaimer": "NutriCart provides general grocery-planning information, not medical or dietary advice.",
     }
