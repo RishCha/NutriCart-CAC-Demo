@@ -69,14 +69,14 @@ body { margin: 0; background-color: #f8f4e9; background-image: radial-gradient(c
 .view-tabs { display: flex; justify-content: flex-end; gap: 2px; min-width: 0; margin: 0; padding: 0; }
 .tab { min-height: 44px; padding: 8px 9px; border: 1px solid transparent; background: transparent; color: var(--muted); font-family: var(--font-ui); font-size: .88rem; font-weight: var(--font-weight-semibold); letter-spacing: normal; white-space: nowrap; }
 .tab.is-selected { border-color: var(--green); background: var(--mint); color: var(--green); box-shadow: inset 0 -3px var(--green); }
-.app-view { outline: none; opacity: 1; transform: translateY(0); transition: opacity 360ms cubic-bezier(.22, .61, .36, 1), transform 360ms cubic-bezier(.22, .61, .36, 1); }
+.app-view { outline: none; opacity: 1; transform: translateY(0); transition: opacity 260ms ease-out, transform 260ms ease-out; }
 .app-view.is-leaving { opacity: 0; transform: translateY(-8px); }
 .app-view.is-entering { opacity: 0; transform: translateY(12px); }
 [data-transition-mode="subtle"] .app-view { transition-duration: 90ms; }
 [data-transition-mode="subtle"] .app-view.is-leaving, [data-transition-mode="subtle"] .app-view.is-entering { transform: none; }
 [data-transition-mode="off"] .app-view { transition: none; }
 [data-transition-mode="off"] .reveal-sequence > * { animation: none; }
-.reveal-sequence > * { animation: section-arrival 420ms cubic-bezier(.22, .61, .36, 1) both; }
+.reveal-sequence > * { animation: section-arrival 280ms ease-out both; }
 .reveal-sequence > *:nth-child(2) { animation-delay: 70ms; }
 .reveal-sequence > *:nth-child(3) { animation-delay: 140ms; }
 @keyframes section-arrival { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: translateY(0); } }
@@ -92,7 +92,7 @@ body { margin: 0; background-color: #f8f4e9; background-image: radial-gradient(c
 .planner-options > summary::-webkit-details-marker { display: none; }
 .planner-options > summary span:first-child { display: flex; flex-direction: column; gap: 3px; }
 .planner-options > summary small { color: var(--muted); font-weight: 500; }
-.planner-options > summary span:last-child { font-size: 1.5rem; transition: transform .2s ease; }
+.planner-options > summary span:last-child { font-size: 1.5rem; transition: transform 240ms ease-out; }
 .planner-options[open] > summary span:last-child { transform: rotate(45deg); }
 .planner-options-content { border-top: 1px solid var(--line); padding: 22px; }
 .planner-actions { justify-content: center; margin-top: 8px; }
@@ -137,7 +137,7 @@ textarea { resize: vertical; }
 .fiber-area { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
 .recommendation { margin: 8px 0; padding: 10px 12px; border-radius: 8px; background: var(--mint); color: var(--green-dark); font-weight: 700; }
 .help { margin: 5px 0 0; color: var(--muted); font-size: var(--font-size-small); font-weight: 400; line-height: 1.45; }
-button { cursor: pointer; border-radius: 9px; padding: 11px 16px; font-family: var(--font-ui); font-size: .96rem; font-weight: var(--font-weight-semibold); letter-spacing: normal; transition: background-color .15s, box-shadow .15s, transform .15s; }
+button { cursor: pointer; border-radius: 9px; padding: 11px 16px; font-family: var(--font-ui); font-size: .96rem; font-weight: var(--font-weight-semibold); letter-spacing: normal; transition: background-color 220ms ease-out, box-shadow 220ms ease-out, transform 220ms ease-out; }
 .primary { border: 1px solid var(--green); background: var(--green); color: white; }
 .secondary { border: 1px solid var(--green); background: white; color: var(--green); }
 button:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 12px #17352a24; }
@@ -1886,4 +1886,42 @@ html { scroll-padding-top: var(--header-offset, 190px); }
   #meal-plan-ready { padding: 24px 18px; }
   #meal-plan-ready p { margin-bottom: 18px; }
   #meal-plan-ready .primary { width: 100%; }
+}
+
+/* Planner and Shopping Budget interaction polish. */
+.required-marker { margin-left: .12em; color: #b63b2d; font-weight: 800; }
+.planner-inline-error { display: block; margin-top: 7px; color: #a33227; font-size: .82rem; font-weight: 650; line-height: 1.4; }
+.planner-inline-error[hidden] { display: none; }
+.feasibility-fields > label, #diet-options { scroll-margin-top: var(--header-offset, 190px); }
+.feasibility-fields > label.is-invalid input,
+#diet-options.is-invalid { outline: 2px solid #b63b2d; outline-offset: 3px; border-radius: 9px; }
+.budget-store-context { max-width: min(48%, 520px); margin: 0; color: var(--green-dark); font-size: clamp(.95rem, 1.8vw, 1.08rem); font-weight: 750; line-height: 1.4; text-align: right; overflow-wrap: anywhere; }
+.budget-store-context[hidden], .budget-purchase-success[hidden] { display: none; }
+.budget-purchase-success { margin: 8px 0 0; color: var(--green-dark); font-size: .9rem; font-weight: 750; line-height: 1.4; }
+.planner-card, .workflow-locked-card, .budget-balance-card, .shopping-list-panel,
+.additional-purchases, details > summary {
+  transition: border-color 240ms ease-out, background-color 240ms ease-out, box-shadow 240ms ease-out, color 240ms ease-out;
+}
+#feedback-dialog {
+  opacity: 0; transform: translateY(8px) scale(.99);
+  transition: opacity 240ms ease-out, transform 240ms ease-out, display 240ms allow-discrete, overlay 240ms allow-discrete;
+}
+#feedback-dialog[open] { opacity: 1; transform: translateY(0) scale(1); }
+#feedback-dialog::backdrop { opacity: 0; transition: opacity 240ms ease-out, display 240ms allow-discrete, overlay 240ms allow-discrete; }
+#feedback-dialog[open]::backdrop { opacity: 1; }
+@starting-style {
+  #feedback-dialog[open] { opacity: 0; transform: translateY(8px) scale(.99); }
+  #feedback-dialog[open]::backdrop { opacity: 0; }
+}
+[data-high-contrast="true"] .feasibility-fields > label.is-invalid input,
+[data-high-contrast="true"] #diet-options.is-invalid { outline-width: 3px; }
+@media (max-width: 700px) {
+  .budget-session-heading { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .budget-store-context { max-width: 100%; text-align: left; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-view, button, .planner-card, .workflow-locked-card, .budget-balance-card,
+  .shopping-list-panel, .additional-purchases, details > summary,
+  #feedback-dialog, #feedback-dialog::backdrop, .reveal-sequence > *,
+  .budget-dashboard.is-arriving .budget-reveal { transition: none !important; animation: none !important; }
 }

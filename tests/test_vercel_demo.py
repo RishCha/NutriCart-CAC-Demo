@@ -76,8 +76,27 @@ class VercelDemoTests(unittest.TestCase):
         self.assertIn("NutriCart supports plans for 1–31 days.", script)
         self.assertNotIn("People must be a whole number from 1 to 20.", script)
         self.assertNotIn("Days must be a whole number from 1 to 31.", script)
-        self.assertIn('filename=\'grocery.js\', v=\'basket-store-38\'', (ROOT / "templates" / "index.html").read_text(encoding="utf-8"))
-        self.assertIn("grocery.js?v=basket-store-38", page)
+        self.assertIn('filename=\'grocery.js\', v=\'planner-budget-56\'', (ROOT / "templates" / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("grocery.js?v=planner-budget-56", page)
+
+    def test_planner_required_fields_have_inline_accessible_validation(self):
+        script = (ROOT / "static" / "grocery.js").read_text(encoding="utf-8")
+        page = self.client.get("/").text
+        for name, message in (
+            ("budget", "Enter your grocery budget."),
+            ("people", "Enter the number of people."),
+            ("days", "Enter the number of shopping days."),
+            ("diet", "Choose a dietary preference."),
+        ):
+            with self.subTest(name=name):
+                self.assertIn(f'id="{name}-validation" class="planner-inline-error" role="alert"', page)
+                self.assertIn(message, script)
+        self.assertEqual(page.count('class="required-marker" aria-hidden="true">*</span>'), 4)
+        self.assertGreaterEqual(page.count('aria-required="true"'), 4)
+        self.assertIn("validateRequiredPlannerFields(values, true)", script)
+        self.assertIn('behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth"', script)
+        self.assertIn("firstInvalid.control.focus({preventScroll: true})", script)
+        self.assertIn("refreshRequiredPlannerField(field)", script)
 
     def test_basket_summary_uses_selected_store_name_without_location_fallback(self):
         script = (ROOT / "static" / "grocery.js").read_text(encoding="utf-8")
@@ -100,7 +119,7 @@ class VercelDemoTests(unittest.TestCase):
         self.assertIn("width: min(100%, 800px)", styles)
         self.assertIn("#meal-plan-ready .primary", styles)
         self.assertNotIn("min-height: 330px", styles.split("/* Compact unlocked Meal Plan action state. */", 1)[1])
-        self.assertIn("styles.css?v=feedback-46", page)
+        self.assertIn("styles.css?v=planner-budget-56", page)
 
     def test_feedback_modal_has_optional_two_stage_actions(self):
         page = self.client.get("/").text

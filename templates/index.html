@@ -6,7 +6,7 @@
   <title>NutriCart</title>
   {% set brand_icon %}{% include "nutricart-logo.svg" %}{% endset %}
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,{{ brand_icon|urlencode }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='feedback-46') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='planner-budget-56') }}">
 </head>
 <body>
   <main class="shell">
@@ -133,15 +133,15 @@
       <form id="planner-form" method="post" action="/" novalidate hidden>
         <div class="form-sections">
           <section class="panel essentials-panel"><div class="section-heading"><div><h2>Plan Details</h2></div></div><div class="field-grid three-columns feasibility-fields">
-            <label>Budget <span class="input-prefix"><span>$</span><input id="budget" name="budget" type="number" min="10" step="0.01" placeholder="Example: 100" aria-describedby="budget-feasibility" required></span><small id="budget-feasibility" class="feasibility-guidance">Enter people, days, and diet to estimate the minimum budget.</small></label>
-            <label>People <input id="people" name="people" type="number" min="1" max="20" step="1" placeholder="Example: 2" aria-describedby="people-feasibility" required><small id="people-feasibility" class="feasibility-guidance">Enter budget, days, and diet to estimate household capacity.</small></label>
-            <label>Days <input id="days" name="days" type="number" min="1" max="31" step="1" placeholder="Example: 7" aria-describedby="days-feasibility" required><small id="days-feasibility" class="feasibility-guidance">Enter budget, people, and diet to estimate the planning period.</small></label>
+            <label>Budget <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span><span class="input-prefix"><span>$</span><input id="budget" name="budget" type="number" min="10" step="0.01" placeholder="Example: 100" aria-describedby="budget-feasibility budget-validation" aria-errormessage="budget-validation" aria-required="true" required></span><small id="budget-feasibility" class="feasibility-guidance">Enter people, days, and diet to estimate the minimum budget.</small><small id="budget-validation" class="planner-inline-error" role="alert" aria-live="assertive" hidden></small></label>
+            <label>People <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span><input id="people" name="people" type="number" min="1" max="20" step="1" placeholder="Example: 2" aria-describedby="people-feasibility people-validation" aria-errormessage="people-validation" aria-required="true" required><small id="people-feasibility" class="feasibility-guidance">Enter budget, days, and diet to estimate household capacity.</small><small id="people-validation" class="planner-inline-error" role="alert" aria-live="assertive" hidden></small></label>
+            <label>Days <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span><input id="days" name="days" type="number" min="1" max="31" step="1" placeholder="Example: 7" aria-describedby="days-feasibility days-validation" aria-errormessage="days-validation" aria-required="true" required><small id="days-feasibility" class="feasibility-guidance">Enter budget, people, and diet to estimate the planning period.</small><small id="days-validation" class="planner-inline-error" role="alert" aria-live="assertive" hidden></small></label>
           </div><p id="feasibility-status" class="feasibility-status" role="status" aria-live="polite"></p></section>
 
-          <section class="panel"><div class="section-heading"><div><h2 id="planner-diet-title">Diet</h2></div></div>
-              <div><div class="choice-grid" id="diet-options" role="radiogroup" aria-labelledby="planner-diet-title">
-                <label><input type="radio" name="diet" value="omnivore"> Omnivore</label><label><input type="radio" name="diet" value="vegetarian"> Vegetarian</label><label><input type="radio" name="diet" value="vegan"> Vegan</label><label><input type="radio" name="diet" value="pescatarian"> Pescatarian</label>
-              </div></div>
+          <section class="panel"><div class="section-heading"><div><h2 id="planner-diet-title">Diet <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></h2></div></div>
+              <div><div class="choice-grid" id="diet-options" role="radiogroup" aria-labelledby="planner-diet-title" aria-describedby="diet-validation" aria-errormessage="diet-validation" aria-required="true">
+                <label><input type="radio" name="diet" value="omnivore" required> Omnivore</label><label><input type="radio" name="diet" value="vegetarian" required> Vegetarian</label><label><input type="radio" name="diet" value="vegan" required> Vegan</label><label><input type="radio" name="diet" value="pescatarian" required> Pescatarian</label>
+              </div><small id="diet-validation" class="planner-inline-error" role="alert" aria-live="assertive" hidden></small></div>
               <label id="include-fish-option" class="fish-option" hidden><input id="include-fish" type="checkbox"> Include fish</label>
           </section>
 
@@ -261,6 +261,7 @@
       <div id="budget-dashboard" class="budget-dashboard" hidden>
         <header class="budget-session-heading budget-reveal">
           <div><p class="workflow-step-label">Step 4 of 4</p><h1 id="budget-view-title">Shopping Budget</h1></div>
+          <p id="budget-store-context" class="budget-store-context" hidden></p>
         </header>
 
         <div class="shopping-workspace">
@@ -332,6 +333,7 @@
             <details id="purchase-store-disclosure" class="budget-store-disclosure"><summary>+ Add store (optional)</summary><div><label for="purchase-store">Store (optional)</label><input id="purchase-store" type="text" autocomplete="organization"></div></details>
             <p id="planned-price-help" class="budget-plan-help" hidden>Planned estimate — confirm or replace it with the actual checkout price.</p>
             <button id="add-purchase" class="budget-button budget-button-primary" type="submit" data-cursor-effect="add-purchase">Record Purchase</button>
+            <p id="purchase-success" class="budget-purchase-success" role="status" aria-live="polite" hidden></p>
             <p id="purchase-error" class="budget-form-message" role="alert"></p>
           </form>
         </section>
@@ -383,10 +385,10 @@
   <script src="{{ url_for('static', filename='password_fields.js', v='account-recovery-1') }}" defer></script>
   <script src="{{ url_for('static', filename='account.js', v='demo-account-28') }}" defer></script>
   <script src="{{ url_for('static', filename='app.js', v='locked-steps-32') }}" defer></script>
-  <script src="{{ url_for('static', filename='grocery.js', v='basket-store-38') }}" defer></script>
+  <script src="{{ url_for('static', filename='grocery.js', v='planner-budget-56') }}" defer></script>
   <script src="{{ url_for('static', filename='price_comparison.js', v='location-planning-1') }}" defer></script>
   <script src="{{ url_for('static', filename='meal_plan.js', v='locked-steps-32') }}" defer></script>
-  <script src="{{ url_for('static', filename='budget_tracker.js', v='shopping-flow-22') }}" defer></script>
+  <script src="{{ url_for('static', filename='budget_tracker.js', v='planner-budget-56') }}" defer></script>
   {% if vercel_analytics_enabled %}
   <script>
     window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };

@@ -28,7 +28,7 @@ class ShoppingBudgetPageTests(unittest.TestCase):
             "starting-budget", "budget-remaining", "budget-spent", "budget-status-copy",
             "budget-progress-fill", "purchase-item", "purchase-store", "purchase-cost",
             "add-purchase", "purchase-log", "undo-purchase", "clear-purchases",
-            "new-budget-session", "budget-live-status",
+            "new-budget-session", "budget-live-status", "budget-store-context", "purchase-success",
         )
         for identifier in required:
             with self.subTest(identifier=identifier):
@@ -36,7 +36,7 @@ class ShoppingBudgetPageTests(unittest.TestCase):
         self.assertIn('id="purchase-store-disclosure"', self.page)
         self.assertIn("+ Add store (optional)", self.page)
         self.assertIn("Record Purchase", self.page)
-        self.assertIn("budget_tracker.js?v=shopping-flow-22", self.page)
+        self.assertIn("budget_tracker.js?v=planner-budget-56", self.page)
 
     def test_forms_have_real_validation_hooks(self):
         self.assertIn('id="purchase-item" type="text"', self.page)
@@ -199,7 +199,33 @@ class ShoppingBudgetPageTests(unittest.TestCase):
         submit = self.script.split('purchaseForm.addEventListener("submit"', 1)[1].split('log.addEventListener("click"', 1)[0]
         self.assertIn("purchaseForm.reset()", submit)
         self.assertIn("storeDisclosure.open = false", submit)
-        self.assertIn("itemInput.focus()", submit)
+        self.assertIn("showPurchaseSuccess()", submit)
+        self.assertIn("itemInput.focus({preventScroll: true})", self.script)
+
+    def test_selected_store_context_is_shown_without_a_locality_fallback(self):
+        renderer = self.script.split("function renderStoreContext", 1)[1].split("function clearPurchaseSuccess", 1)[0]
+        self.assertIn("context?.selected_store?.name", renderer)
+        self.assertIn("`Shopping at ${storeName}`", renderer)
+        self.assertIn("budgetStoreContext.hidden = !storeName", renderer)
+        self.assertNotIn("locality", renderer)
+        opened = self.script.split('document.addEventListener("nutricart:budget-opened"', 1)[1].split('document.addEventListener("nutricart:plan-updated"', 1)[0]
+        updated = self.script.split('document.addEventListener("nutricart:plan-updated"', 1)[1].split('querySelector("#create-grocery-plan")', 1)[0]
+        self.assertIn("renderStoreContext(event.detail?.context)", opened)
+        self.assertIn("renderStoreContext(event.detail?.context)", updated)
+        self.assertIn("context: currentPlan?.context || null", self.grocery_script)
+
+    def test_manual_purchase_success_is_temporary_accessible_and_failure_safe(self):
+        self.assertIn('id="purchase-success" class="budget-purchase-success" role="status" aria-live="polite" hidden', self.page)
+        success = self.script.split("function showPurchaseSuccess", 1)[1].split("function spentCents", 1)[0]
+        self.assertIn('purchaseSuccess.textContent = "✓ Item has been added!"', success)
+        self.assertIn("purchaseSuccess.scrollIntoView", success)
+        self.assertIn("reduceMotion.matches", success)
+        self.assertIn("window.setTimeout(clearPurchaseSuccess, 4000)", success)
+        submit = self.script.split('purchaseForm.addEventListener("submit"', 1)[1].split('log.addEventListener("click"', 1)[0]
+        self.assertGreater(submit.index("showPurchaseSuccess()"), submit.index("purchases.push(purchase)"))
+        self.assertIn("clearPurchaseSuccess()", submit)
+        self.assertIn('[costInput, storeInput].forEach(input => input.addEventListener("input", clearPurchaseSuccess))', self.script)
+        self.assertIn("clearPurchaseSuccess();", self.script.split('itemInput.addEventListener("input"', 1)[1].split("});", 1)[0])
 
     def test_mobile_quick_add_uses_native_submit_and_decimal_keyboard(self):
         form = self.page.split('id="purchase-form"', 1)[1].split("</form>", 1)[0]
@@ -250,6 +276,11 @@ class ShoppingBudgetPageTests(unittest.TestCase):
         self.assertIn("role=\"progressbar\"", self.page)
         self.assertIn("@keyframes purchase-arrival", self.styles)
         self.assertIn("@keyframes budget-stage", self.styles)
+        self.assertIn("transition: opacity 260ms ease-out", self.styles)
+        self.assertIn("#feedback-dialog[open]", self.styles)
+        reduced = self.styles.rsplit("@media (prefers-reduced-motion: reduce)", 1)[1]
+        self.assertIn("#feedback-dialog", reduced)
+        self.assertIn("transition: none !important", reduced)
 
     def test_typography_mobile_and_reduced_motion(self):
         self.assertIn('--font-ui: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif', self.styles)

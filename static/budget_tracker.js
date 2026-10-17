@@ -18,6 +18,8 @@
   const log = document.querySelector("#purchase-log");
   const emptyLog = document.querySelector("#empty-purchase-log");
   const liveStatus = document.querySelector("#budget-live-status");
+  const budgetStoreContext = document.querySelector("#budget-store-context");
+  const purchaseSuccess = document.querySelector("#purchase-success");
   const shoppingListLink = document.querySelector("#view-shopping-list");
   shoppingListLink.addEventListener("click", () => {
     const list = document.querySelector("#shopping-list-panel");
@@ -49,6 +51,7 @@
   let shoppingPlanFingerprint = "";
   let ignoreNextBudgetPlanUpdate = false;
   let restoredShoppingSession = false;
+  let purchaseSuccessTimer = null;
 
   function parseCents(raw, allowZero = false) {
     const normalized = String(raw).trim().replace(/^\$/, "").replace(/,/g, "");
@@ -62,6 +65,31 @@
     const sign = cents < 0 ? "-" : "";
     const absolute = Math.abs(cents);
     return `${sign}$${Math.floor(absolute / 100).toLocaleString("en-US")}.${String(absolute % 100).padStart(2, "0")}`;
+  }
+
+  function renderStoreContext(context) {
+    const name = context?.selected_store?.name;
+    const storeName = typeof name === "string" ? name.trim() : "";
+    budgetStoreContext.textContent = storeName ? `Shopping at ${storeName}` : "";
+    budgetStoreContext.hidden = !storeName;
+  }
+
+  function clearPurchaseSuccess() {
+    if (purchaseSuccessTimer !== null) window.clearTimeout(purchaseSuccessTimer);
+    purchaseSuccessTimer = null;
+    purchaseSuccess.textContent = "";
+    purchaseSuccess.hidden = true;
+  }
+
+  function showPurchaseSuccess() {
+    clearPurchaseSuccess();
+    purchaseSuccess.textContent = "✓ Item has been added!";
+    purchaseSuccess.hidden = false;
+    itemInput.focus({preventScroll: true});
+    requestAnimationFrame(() => {
+      purchaseSuccess.scrollIntoView({behavior: reduceMotion.matches ? "instant" : "smooth", block: "nearest"});
+    });
+    purchaseSuccessTimer = window.setTimeout(clearPurchaseSuccess, 4000);
   }
 
   function spentCents() {
@@ -357,12 +385,14 @@
 
   document.addEventListener("nutricart:budget-opened", event => {
     initializeFromPlanner(event.detail?.plannerBudget);
+    renderStoreContext(event.detail?.context);
     if (ignoreNextBudgetPlanUpdate) ignoreNextBudgetPlanUpdate = false;
     else if (!restoredShoppingSession) updatePlannedItems(event.detail?.plannedItems);
     dashboard.hidden = false;
   });
   document.addEventListener("nutricart:plan-updated", event => {
     restoredShoppingSession = false;
+    renderStoreContext(event.detail?.context);
     updatePlannedItems(event.detail?.plannedItems);
   });
   [document.querySelector("#create-grocery-plan"), document.querySelector("#shopping-list-create-plan")].forEach(button => button.addEventListener("click", () => {
@@ -411,6 +441,7 @@
   });
 
   plannedSelect.addEventListener("change", () => {
+    clearPurchaseSuccess();
     if (plannedSelect.value === "other" || plannedSelect.value === "") {
       selectedPlannedItem = null;
       itemInput.value = "";
@@ -431,6 +462,7 @@
   });
 
   itemInput.addEventListener("input", () => {
+    clearPurchaseSuccess();
     if (selectedPlannedItem && itemInput.value.trim() !== selectedPlannedItem.product_name.trim()) {
       selectedPlannedItem = null;
       plannedSelect.value = "other";
@@ -462,6 +494,7 @@
 
   purchaseForm.addEventListener("submit", event => {
     event.preventDefault();
+    clearPurchaseSuccess();
     if (!budgetReady) {
       document.querySelector("#purchase-error").textContent = "Set a Starting Budget before adding purchases.";
       startingEditor.open = true;
@@ -493,8 +526,10 @@
     selectedPlannedItem = null;
     document.querySelector("#planned-price-help").hidden = true;
     storeDisclosure.open = false;
-    itemInput.focus();
+    showPurchaseSuccess();
   });
+
+  [costInput, storeInput].forEach(input => input.addEventListener("input", clearPurchaseSuccess));
 
   log.addEventListener("click", event => {
     const editButton = event.target.closest("[data-edit-purchase]");

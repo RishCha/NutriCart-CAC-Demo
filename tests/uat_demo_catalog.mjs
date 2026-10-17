@@ -408,8 +408,11 @@ try {
   check(await evaluate("document.querySelector('#meal-plan-tab').classList.contains('is-workflow-locked') && document.querySelector('#shopping-budget-tab').classList.contains('is-workflow-locked')"),'Steps 3 and 4 remain locked before basket generation');
   await layout('#planner-view','planner-before');
   check(await evaluate("document.querySelector('#planner-essentials').getClientRects().length>0 && !document.querySelector('#planner-form').hidden"),'Planner heading and form visible before generation');
-  await fill({budget:'100',people:'2',days:'7',calories:'2000',protein:'50'});await click('input[name=diet][value=omnivore]');
-  check(await evaluate("!document.querySelector('#planner-error').textContent"),'Valid People and Days show no validation');
+  check(await evaluate("[...document.querySelectorAll('.required-marker')].length===4 && ['budget','people','days'].every(id=>document.querySelector('#'+id).getAttribute('aria-required')==='true') && document.querySelector('#diet-options').getAttribute('aria-required')==='true'"),'Planner exposes four visible and accessible required fields');
+  await fill({budget:'',people:'',days:'',calories:'2000',protein:'50'});await click('#review-settings');
+  check(await evaluate("document.activeElement.id==='budget' && document.querySelector('#budget-validation').textContent==='Enter your grocery budget.' && document.querySelector('#budget').getAttribute('aria-invalid')==='true'"),'Missing planner values focus and identify the first invalid field');
+  await fill({budget:'100',people:'2',days:'7'});await click('input[name=diet][value=omnivore]');
+  check(await evaluate("[...document.querySelectorAll('.planner-inline-error')].every(n=>n.hidden && !n.textContent) && !document.querySelector('#planner-error').textContent"),'Correcting required values clears inline validation immediately');
   for(const [field,value,message] of [
     ['people','0','NutriCart supports plans for 1–20 people.'],
     ['people','21','NutriCart supports plans for 1–20 people.'],
@@ -419,14 +422,17 @@ try {
     ['days','7.5','NutriCart supports plans for 1–31 days.'],
   ]) {
     await fill({people:'2',days:'7',[field]:value});await click('#review-settings');
-    check(await evaluate(`document.querySelector('#planner-error').textContent===${JSON.stringify(message)}`),field+' '+value+' shows friendly validation');
+    check(await evaluate(`document.querySelector('#${field}-validation').textContent===${JSON.stringify(message)} && document.activeElement.id==='${field}'`),field+' '+value+' shows friendly inline validation and receives focus');
     await fill({[field]:field==='people'?'2':'7'});
-    check(await evaluate("!document.querySelector('#planner-error').textContent"),field+' correction clears validation');
+    check(await evaluate(`document.querySelector('#${field}-validation').hidden && !document.querySelector('#${field}-validation').textContent`),field+' correction clears inline validation');
   }
   await fill({people:'0',days:'0'});await click('#review-settings');
-  check(await evaluate("document.querySelector('#planner-error').textContent==='NutriCart supports plans for 1–20 people and 1–31 days.'"),'Both invalid fields show combined validation');
+  check(await evaluate("document.activeElement.id==='people' && document.querySelector('#people-validation').textContent==='NutriCart supports plans for 1–20 people.' && document.querySelector('#days-validation').textContent==='NutriCart supports plans for 1–31 days.'"),'Both invalid fields show specific inline validation and focus the first');
   await fill({people:'2',days:'7'});
-  check(await evaluate("!document.querySelector('#planner-error').textContent"),'Correcting both fields clears combined validation');
+  check(await evaluate("document.querySelector('#people-validation').hidden && document.querySelector('#days-validation').hidden"),'Correcting both fields clears inline validation');
+  await evaluate("document.querySelectorAll('input[name=diet]').forEach(input=>{input.checked=false})");await click('#review-settings');
+  check(await evaluate("document.activeElement.name==='diet' && document.querySelector('#diet-validation').textContent==='Choose a dietary preference.'"),'Missing Diet focuses the radio group and shows its inline message');
+  await click('input[name=diet][value=omnivore]');
   async function generate(diet,budget){
     await fill({budget:String(budget),people:'3',days:'1',calories:'2000',protein:'50'});
     await click(`input[name=diet][value=${diet}]`);
@@ -478,6 +484,7 @@ try {
   await layout('#meal-plan-view','generated-meals');
   check(await evaluate("[...document.querySelectorAll('#meal-plan-view h1')].filter(h=>h.getClientRects().length).length===1 && document.querySelector('#meal-open-budget').textContent==='Track My Shopping'"),'Generated meals retain explicit shopping action');
   await click('#meal-open-budget');
+  check(await evaluate("(()=>{const name=window.task16Plan.context.selected_store.name.trim(),label=document.querySelector('#budget-store-context');return !label.hidden && label.textContent==='Shopping at '+name && !label.textContent.includes(window.task16Plan.context.location?.locality||'__no_locality__')})()"),'Shopping Budget shows the selected retailer without a locality fallback');
   await layout('#shopping-budget-view','shopping');
   for(const width of [1440,390,320]) {
     await cdp('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:width<=390});await delay(200);
@@ -510,8 +517,13 @@ try {
   check((await state()).purchases.length===1,'Mobile touch marks purchased');
   await click('#select-all-shopping');const all=await state();
   check(all.purchases.length===all.shoppingItems.length,'Confirmed mark all counts each listed item once');
-  await click('#additional-purchases > summary');await fill({'purchase-item':'Regression groceries','purchase-cost':'3.50'});await click('#add-purchase');const bought=await state();
+  await click('#additional-purchases > summary');await fill({'purchase-item':'Regression groceries','purchase-cost':'3.50'});await click('#add-purchase');
+  const purchaseConfirmation=await evaluate("(()=>({visible:!document.querySelector('#purchase-success').hidden,text:document.querySelector('#purchase-success').textContent,focus:document.activeElement.id}))()");
+  const bought=await state();
   check(bought.purchases.length===all.purchases.length+1 && bought.purchases.at(-1).costCents===350,'Manual extra purchase recorded independently');
+  check(purchaseConfirmation.visible && purchaseConfirmation.text==='✓ Item has been added!' && purchaseConfirmation.focus==='purchase-item','Successful manual purchase announces confirmation and preserves entry focus '+JSON.stringify(purchaseConfirmation));
+  await fill({'purchase-item':'Next item'});
+  check(await evaluate("document.querySelector('#purchase-success').hidden && !document.querySelector('#purchase-success').textContent"),'Beginning another purchase clears the confirmation');
   const storedBeforeClear=await evaluate("document.querySelector('#purchase-log').textContent");
   dialogAnswer=false;await click('#clear-purchases');
   check(await evaluate("document.querySelector('#purchase-log').textContent")===storedBeforeClear,'Clearing purchases asks and cancel preserves them');

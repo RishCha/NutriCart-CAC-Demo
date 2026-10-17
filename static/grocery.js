@@ -44,8 +44,11 @@
   const groceryLoaderProgress = document.querySelector("#grocery-loader-progress");
   const groceryLoaderFill = document.querySelector("#grocery-loader-fill");
   const groceryLoaderPercent = document.querySelector("#grocery-loader-percent");
+  const budgetInput = document.querySelector("#budget");
   const peopleInput = document.querySelector("#people");
   const daysInput = document.querySelector("#days");
+  const dietInputs = [...form.querySelectorAll('input[name="diet"]')];
+  const dietOptions = document.querySelector("#diet-options");
   const caloriesInput = document.querySelector("#calories");
   const proteinInput = document.querySelector("#protein");
   const customFiberInput = document.querySelector("#fiber-custom");
@@ -175,7 +178,7 @@
     if (nextView === activeView) return;
     viewTransitioning = true;
     activeView.classList.add("is-leaving");
-    await wait(transitionDelay(120, 35));
+    await wait(transitionDelay(220, 80));
     activeView.hidden = true;
     activeView.classList.remove("is-leaving");
     nextView.hidden = false;
@@ -188,10 +191,11 @@
       document.dispatchEvent(new CustomEvent("nutricart:budget-opened", {detail: {
         plannerBudget: currentPlan?.context?.budget ?? document.querySelector("#budget").value,
         plannedItems: currentResult?.groceries || [],
+        context: currentPlan?.context || null,
       }}));
       updateWorkflowState();
     }
-    await wait(transitionDelay(220, 55));
+    await wait(transitionDelay(260, 90));
     nextView.classList.remove("reveal-sequence");
     viewTransitioning = false;
   }
@@ -378,6 +382,67 @@
     if (!Number.isFinite(values.protein) || values.protein < 10 || values.protein > 300) errors.push("Daily protein must be from 10 to 300 grams.");
     if (values.fiber_mode === "custom" && (!Number.isFinite(values.fiber_custom) || values.fiber_custom < 5 || values.fiber_custom > 100)) errors.push("Custom fiber must be from 5 to 100 grams per day.");
     return errors;
+  }
+
+  const requiredPlannerFields = [
+    {name: "budget", control: budgetInput, scrollTarget: budgetInput.closest("label"), error: document.querySelector("#budget-validation")},
+    {name: "people", control: peopleInput, scrollTarget: peopleInput.closest("label"), error: document.querySelector("#people-validation")},
+    {name: "days", control: daysInput, scrollTarget: daysInput.closest("label"), error: document.querySelector("#days-validation")},
+    {name: "diet", control: dietInputs[0], controls: dietInputs, scrollTarget: dietOptions, error: document.querySelector("#diet-validation")},
+  ];
+  const requiredPlannerMessages = new Set([
+    "Budget must be at least $10.",
+    "NutriCart supports plans for 1–20 people and 1–31 days.",
+    "NutriCart supports plans for 1–20 people.",
+    "NutriCart supports plans for 1–31 days.",
+    "Choose a diet before generating your plan.",
+  ]);
+
+  function requiredPlannerMessage(name, values) {
+    if (name === "budget") {
+      if (!budgetInput.value.trim()) return "Enter your grocery budget.";
+      return !Number.isFinite(values.budget) || values.budget < 10 ? "Budget must be at least $10." : "";
+    }
+    if (name === "people") {
+      if (!peopleInput.value.trim()) return "Enter the number of people.";
+      return !Number.isInteger(values.people) || values.people < 1 || values.people > 20 ? "NutriCart supports plans for 1–20 people." : "";
+    }
+    if (name === "days") {
+      if (!daysInput.value.trim()) return "Enter the number of shopping days.";
+      return !Number.isInteger(values.days) || values.days < 1 || values.days > 31 ? "NutriCart supports plans for 1–31 days." : "";
+    }
+    return ["omnivore", "vegetarian", "vegan", "pescatarian"].includes(values.diet) ? "" : "Choose a dietary preference.";
+  }
+
+  function setRequiredPlannerState(field, message) {
+    const invalid = Boolean(message);
+    field.error.textContent = message;
+    field.error.hidden = !invalid;
+    field.scrollTarget.classList.toggle("is-invalid", invalid);
+    field.scrollTarget.setAttribute("aria-invalid", String(invalid));
+    (field.controls || [field.control]).forEach(control => control.setAttribute("aria-invalid", String(invalid)));
+  }
+
+  function validateRequiredPlannerFields(values, focusFirst = false) {
+    let firstInvalid = null;
+    requiredPlannerFields.forEach(field => {
+      const message = requiredPlannerMessage(field.name, values);
+      setRequiredPlannerState(field, message);
+      if (message && !firstInvalid) firstInvalid = field;
+    });
+    if (focusFirst && firstInvalid) {
+      firstInvalid.scrollTarget.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
+        block: "center",
+      });
+      firstInvalid.control.focus({preventScroll: true});
+    }
+    return Boolean(firstInvalid);
+  }
+
+  function refreshRequiredPlannerField(field) {
+    if (field.scrollTarget.getAttribute("aria-invalid") !== "true") return;
+    setRequiredPlannerState(field, requiredPlannerMessage(field.name, collectInputs()));
   }
 
   function labelFor(value) {
@@ -1028,6 +1093,10 @@
   }
   peopleInput.addEventListener("input", refreshVisibleHouseholdValidation);
   daysInput.addEventListener("input", refreshVisibleHouseholdValidation);
+  requiredPlannerFields.forEach(field => {
+    const eventName = field.name === "diet" ? "change" : "input";
+    (field.controls || [field.control]).forEach(control => control.addEventListener(eventName, () => refreshRequiredPlannerField(field)));
+  });
 
   document.querySelector("#use-suggested-targets").addEventListener("click", () => {
     const people = numericValue("#people");
@@ -1095,11 +1164,12 @@
     if (!window.NutriCartLocation?.get()) { switchView("snap"); return null; }
     syncHouseholdToPeople(numericValue("#people"), true);
     const values = collectInputs();
+    const requiredInvalid = validateRequiredPlannerFields(values, true);
     const errors = validateInputs(values);
     const feasibilityKey = JSON.stringify(feasibilityPayload());
     if (currentFeasibility?.key === feasibilityKey && currentFeasibility.status === "clearly_infeasible") errors.push(currentFeasibility.message);
-    plannerError.textContent = errors.join(" ");
-    if (errors.length) return null;
+    plannerError.textContent = errors.filter(error => !requiredPlannerMessages.has(error)).join(" ");
+    if (requiredInvalid || errors.length) return null;
     reviewedInputs = values;
     return values;
   }
