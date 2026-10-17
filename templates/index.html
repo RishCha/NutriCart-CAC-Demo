@@ -6,7 +6,7 @@
   <title>NutriCart</title>
   {% set brand_icon %}{% include "nutricart-logo.svg" %}{% endset %}
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,{{ brand_icon|urlencode }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='planner-budget-56') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='settings-icon-60') }}">
 </head>
 <body>
   <main class="shell">
@@ -20,7 +20,7 @@
       </nav>
       <div class="header-utilities">
         <div class="app-settings-utility"{% if account_user %} hidden{% endif %}>
-          <button id="settings-button" class="settings-button" type="button" aria-haspopup="dialog" aria-controls="settings-dialog" aria-label="Settings" title="Settings" data-cursor-context="settings"><span aria-hidden="true">⚙</span></button>
+          <button id="settings-button" class="settings-button" type="button" aria-haspopup="dialog" aria-controls="settings-dialog" aria-label="Settings" title="Settings" data-cursor-context="settings"><svg class="settings-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.09a2 2 0 0 1 1 1.74v.5a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
         </div>
         <div class="account-menu-wrap">
           <button id="account-button" class="account-button{% if account_user %} is-signed-in{% endif %}" type="button" aria-haspopup="{{ 'menu' if account_user else 'dialog' }}" aria-controls="account-dialog" aria-expanded="false" data-cursor-context="account">{% if account_user %}<span class="account-avatar" aria-hidden="true">{{ (account_user.first_name or 'N')[0]|upper }}</span>{% endif %}<span id="account-button-label">{% if account_user %}{{ account_user.first_name or 'Account' }}{% else %}Sign In{% endif %}</span>{% if account_user %}<span class="account-chevron" aria-hidden="true">▾</span>{% endif %}</button>
@@ -29,7 +29,7 @@
             <button type="button" role="menuitem" data-account-menu-section="plans">My Plans</button>
             <button type="button" role="menuitem" data-account-menu-section="shopping">My Shopping Sessions</button>
             <button type="button" role="menuitem" data-account-menu-section="settings">Account Settings</button>
-            <button id="account-menu-app-settings" type="button" role="menuitem" aria-haspopup="dialog" aria-controls="settings-dialog" aria-label="Settings" title="Settings" data-cursor-context="settings"><span aria-hidden="true">⚙</span> Settings</button>
+            <button id="account-menu-app-settings" type="button" role="menuitem" aria-haspopup="dialog" aria-controls="settings-dialog" aria-label="Settings" title="Settings" data-cursor-context="settings"><svg class="settings-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.09a2 2 0 0 1 1 1.74v.5a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg> Settings</button>
             <button id="account-menu-sign-out" class="account-menu-sign-out" type="button" role="menuitem">Sign Out</button>
           </div>
         </div>

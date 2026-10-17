@@ -68,6 +68,20 @@ class VercelDemoTests(unittest.TestCase):
         for save_control in ("save-grocery-plan", "save-meal-plan", "save-shopping-list"):
             self.assertRegex(page, rf'id="{save_control}"[^>]* hidden')
 
+    def test_settings_icon_uses_browser_independent_svg(self):
+        page = self.client.get("/").text
+        template = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
+        styles = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
+        self.assertEqual(page.count('class="settings-icon"'), 2)
+        self.assertEqual(page.count('class="settings-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"'), 2)
+        self.assertEqual(page.count('stroke="currentColor"'), 2)
+        self.assertIn('id="settings-button"', page)
+        self.assertIn('aria-label="Settings" title="Settings"', page)
+        self.assertIn('id="account-menu-app-settings"', page)
+        self.assertNotIn("\u2699", template)
+        self.assertIn(".settings-icon { display: block; flex: 0 0 20px; width: 20px; height: 20px; }", styles)
+        self.assertIn("#account-menu-app-settings { display: flex; align-items: center; gap: 8px; }", styles)
+        self.assertIn("styles.css?v=settings-icon-60", page)
     def test_planner_uses_friendly_people_and_days_validation(self):
         script = (ROOT / "static" / "grocery.js").read_text(encoding="utf-8")
         page = self.client.get("/").text
@@ -119,7 +133,7 @@ class VercelDemoTests(unittest.TestCase):
         self.assertIn("width: min(100%, 800px)", styles)
         self.assertIn("#meal-plan-ready .primary", styles)
         self.assertNotIn("min-height: 330px", styles.split("/* Compact unlocked Meal Plan action state. */", 1)[1])
-        self.assertIn("styles.css?v=planner-budget-56", page)
+        self.assertIn("styles.css?v=settings-icon-60", page)
 
     def test_feedback_modal_has_optional_two_stage_actions(self):
         page = self.client.get("/").text

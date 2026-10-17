@@ -175,6 +175,19 @@ try {
   await evaluate("NutriCartSettings.setSetting('cursorEffects',false);document.addEventListener('nutricart:plan-updated',e=>window.task16Plan={context:e.detail.context,result:e.detail.result})");
   check(await evaluate("document.querySelectorAll('.hero-actions button').length===1 && document.querySelector('#hero-find-snap').textContent===\"Let's get started\""),'Home unchanged');
   check(await evaluate("document.querySelector('#home-button svg') && document.querySelector('.footer-brand svg') && document.querySelector('link[rel=icon]').href.startsWith('data:image/svg+xml')"),'Original basket logo in header footer and favicon');
+  for(const [width,size] of [[1440,'normal'],[390,'extra-large'],[320,'extra-large']]) {
+    await cdp('Emulation.setDeviceMetricsOverride',{width,height:800,deviceScaleFactor:1,mobile:width<=390});
+    await evaluate(`NutriCartSettings.setSetting('textSize',${JSON.stringify(size)})`);await delay(100);
+    const iconState=await evaluate("(()=>{const button=document.querySelector('#settings-button'),icon=button.querySelector('svg.settings-icon'),b=button.getBoundingClientRect(),i=icon.getBoundingClientRect();return {button:[b.width,b.height],icon:[i.width,i.height],center:[Math.abs((b.left+b.width/2)-(i.left+i.width/2)),Math.abs((b.top+b.height/2)-(i.top+i.height/2))],aria:button.getAttribute('aria-label'),title:button.title,hidden:icon.getAttribute('aria-hidden'),focusable:icon.getAttribute('focusable'),stroke:icon.getAttribute('stroke'),overflow:document.documentElement.scrollWidth>innerWidth+1}})()");
+    check(iconState.button[0]===44 && iconState.button[1]>=42 && iconState.icon[0]===20 && iconState.icon[1]===20 && iconState.center.every(delta=>delta<0.6) && iconState.aria==='Settings' && iconState.title==='Settings' && iconState.hidden==='true' && iconState.focusable==='false' && iconState.stroke==='currentColor' && !iconState.overflow,'Settings SVG stays centered and accessible '+width+' '+size+' '+JSON.stringify(iconState));
+  }
+  await cdp('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});await evaluate("NutriCartSettings.setSetting('textSize','normal');document.querySelector('#settings-button').focus()");
+  await cdp('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13,text:'\r'});await cdp('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});await delay(150);
+  check(await evaluate("!document.querySelector('#settings-dialog').hidden"),'Settings SVG button opens with Enter');
+  await click('#settings-close');await evaluate("document.querySelector('#settings-button').focus()");
+  await cdp('Input.dispatchKeyEvent',{type:'keyDown',key:' ',code:'Space',windowsVirtualKeyCode:32,text:' '});await cdp('Input.dispatchKeyEvent',{type:'keyUp',key:' ',code:'Space',windowsVirtualKeyCode:32});await delay(150);
+  check(await evaluate("!document.querySelector('#settings-dialog').hidden"),'Settings SVG button opens with Space');
+  await click('#settings-close');
   check(await evaluate("!document.querySelector('#sign-in-form') && !document.querySelector('#create-account-form') && !document.querySelector('#forgot-password-form') && [...document.querySelectorAll('#save-grocery-plan,#save-meal-plan,#save-shopping-list')].every(n=>n.hidden)"),'Public demo omits authentication forms and cloud-save prompts');
   for(const [width,size] of [[1440,'normal'],[390,'extra-large'],[320,'extra-large']]) {
     await cdp('Emulation.setDeviceMetricsOverride',{width,height:800,deviceScaleFactor:1,mobile:width<=390});
