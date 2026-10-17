@@ -114,7 +114,7 @@ class VercelDemoTests(unittest.TestCase):
             self.assertIn(text, page)
         self.assertNotIn("Please leave out personal and shopping details.", page)
         self.assertNotIn("id=\"feedback-note\"", page)
-        for identifier in ("feedback-skip", "feedback-done", "feedback-support"):
+        for identifier in ("feedback-skip", "feedback-done", "feedback-cooldown", "feedback-cooldown-done", "feedback-support"):
             self.assertIn(f'id="{identifier}"', page)
         for text in (
             "What did you like about NutriCart?",
@@ -129,10 +129,15 @@ class VercelDemoTests(unittest.TestCase):
         self.assertIn("function readableFailure(data)", script)
         self.assertIn("let failureMessage = genericFailure", script)
         self.assertIn("const cooldownFailure", script)
+        self.assertIn('const cooldownKey = "nutricart:feedback-cooldown-until"', script)
+        self.assertIn("const cooldownDuration = 60 * 1000", script)
+        self.assertIn("sessionStorage.setItem(cooldownKey", script)
+        self.assertIn("sessionStorage.getItem(cooldownKey)", script)
+        self.assertIn("startCooldown();", script)
         self.assertIn("response.status === 429", script)
         self.assertNotIn("new Error(data.error", script)
         self.assertIn(".feedback-actions", styles)
-        self.assertIn("feedback.js?v=feedback-52", page)
+        self.assertIn("feedback.js?v=feedback-54", page)
 
     def test_page_background_gradients_do_not_repeat(self):
         styles = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")

@@ -1785,14 +1785,14 @@ html { scroll-padding-top: var(--header-offset, 190px); }
 .feedback-skip:hover:not(:disabled) { background: var(--sage); box-shadow: none; }
 #feedback-status { min-height: 1.5em; margin: 14px 0 0; color: var(--error); font-size: .9rem; text-align: center; overflow-wrap: anywhere; }
 #feedback-status:empty { min-height: 0; margin: 0; }
-#feedback-thanks { display: grid; justify-items: center; gap: 22px; margin-top: 6px; }
-#feedback-thanks[hidden] { display: none; }
+#feedback-thanks, #feedback-cooldown { display: grid; justify-items: center; gap: 22px; margin-top: 6px; }
+#feedback-thanks[hidden], #feedback-cooldown[hidden] { display: none; }
 .feedback-success-icon { display: grid; width: 54px; height: 54px; place-items: center; border-radius: 50%; background: var(--sage); color: var(--green-dark); }
 .feedback-success-icon svg { width: 30px; height: 30px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
-#feedback-done { min-width: 150px; }
+#feedback-done, #feedback-cooldown-done { min-width: 150px; }
 #feedback-dialog button:focus-visible, #feedback-dialog textarea:focus-visible { outline: 3px solid var(--green-dark); outline-offset: 2px; }
 @media (max-width: 700px) { #feedback-desktop { display: none; } #feedback-mobile { display: inline-block; min-height: 44px; } }
-@media (max-width: 480px) { #feedback-dialog { padding: 32px 18px 20px; } .feedback-actions { grid-template-columns: 1fr; } .feedback-actions button, #feedback-done { width: 100%; } }
+@media (max-width: 480px) { #feedback-dialog { padding: 32px 18px 20px; } .feedback-actions { grid-template-columns: 1fr; } .feedback-actions button, #feedback-done, #feedback-cooldown-done { width: 100%; } }
 
 /* Compact location confirmation and selectable retailer cards. */
 #detected-location { display: flex; gap: 12px; align-items: flex-start; background: #edf5ed; border: 1px solid #b5ceba; border-radius: 12px; padding: 14px 16px; }
