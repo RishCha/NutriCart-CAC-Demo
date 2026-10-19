@@ -1,6 +1,4 @@
 (() => {
-  // NutriCart Meal Plan Controller
-  // Builds multi-day meal schedules and a nutrition summary from the active grocery basket.
   // Event contracts:
   //   Listens: 'nutricart:plan-updated', 'nutricart:create-meal-plan', 'nutricart:open-saved-meal'
   //   Dispatches: 'nutricart:meal-rendered', 'nutricart:navigate', 'nutricart:open-comparison'

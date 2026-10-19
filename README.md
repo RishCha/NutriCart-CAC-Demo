@@ -1,29 +1,72 @@
-# NutriCart public CAC demonstration
+# NutriCart
 
-Find SNAP Stores -> Build Your Basket -> Meal Plan -> Shopping Budget.
+A SNAP-focused grocery planning app that helps users find authorized retailers, build a grocery plan around their budget, create meal ideas, and track spending while shopping.
 
-This independent release uses 33 generic food examples with actual USDA FoodData Central CC0 nutrition. Package masses and prices are synthetic examples, not retail observations. Actual store prices may differ. SNAP authorization establishes neither product availability nor item-level SNAP eligibility.
+## Live Demo
 
-## Planning and shopping
+https://nutri-cart-kohl.vercel.app
 
-Choose a SNAP-authorized store to continue from search results. This records shopping intent only; it does not establish stock, actual prices, or product eligibility. A Pescatarian plan can optionally request fish; the existing USDA-based salmon example remains subject to the same budget, exclusion, and nutrition constraints.
+## What NutriCart Does
 
-Marking a list item purchased adds its estimated basket price to the session ledger once. Edit the price to match a receipt. Unchecking reverses that purchase, with confirmation after a price edit. Additional purchases are available below the list.
+- Finds nearby SNAP-authorized retailers.
+- Builds a grocery basket from a budget, household size, number of days, and dietary preference.
+- Turns the current basket into simple meal ideas.
+- Tracks purchases and the remaining budget while shopping.
 
-## Local startup
+## Why It Exists
 
-Use Python 3.13. Create a local virtual environment, install requirements.txt, then run:
+Planning groceries on a limited budget requires several decisions at once: where to shop, what to buy, how to use it, and how much money remains. NutriCart brings those steps into one guided workflow while keeping retailer authorization, example prices, and product availability clearly separated.
+
+## How It Works
+
+**Find Store → Build Basket → Meal Plan → Shopping Budget**
+
+The core public-demo workflow is available without an account.
+
+## Technology
+
+- Python and Flask
+- JavaScript, HTML, and CSS
+- PuLP for grocery-plan optimization
+- USDA and other public location-data services
+- Vercel hosting and Web Analytics
+
+## Data and Pricing Note
+
+The public demo uses an independently assembled catalog of generic foods with nutrition data from USDA FoodData Central. Example package sizes and prices are synthetic planning inputs, not guaranteed live retailer prices. SNAP-authorized retailer information comes from USDA retailer data and does not establish product inventory or item-level SNAP eligibility.
+
+NutriCart is not affiliated with or endorsed by USDA.
+
+## Running Locally
+
+Use Python 3.13 from the repository root:
 
 ```powershell
+py -3.13 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -B app.py
 ```
 
-This release always uses data/demo, locally and on Vercel. Missing files fail; no private-data fallback exists. Environment files are not loaded. Configure hosting variables through the dashboard.
+The public release always uses `data/demo`. Missing demonstration data causes startup to fail rather than falling back to private catalogs.
 
-## Limits
+## Testing
 
-The release is guest-only. Registration, sign-in, cloud saves, and password recovery return an unavailable response; no account database is included or required. Implementation modules remain for compatibility. Plans and purchases remain in page memory and are lost on reload. Settings persist only with explicit opt-in. Store price comparison is unavailable for synthetic groceries.
+Run the Python regression suite and browser UAT from the repository root:
 
-Nutrition is generic planning information, not medical advice, allergy safety, guaranteed adequacy, or exact meal portions. Package quantities use the stated USDA preparation state (raw, dry, or cooked).
+```powershell
+.\.venv\Scripts\python.exe -B -m unittest discover -s tests -v
+node tests/uat_demo_catalog.mjs
+```
 
-See DATA_SOURCES.md, PRIVACY.md, AI_USAGE.md, and docs/vercel-demo.md. The separate USDA SNAP service mark remains subject to final use review; this application is not endorsed by USDA.
+The suite covers catalog safety, planning constraints, diet rules, workflow state, feedback protections, responsive layouts, and the connected shopping flow.
+
+## AI Assistance
+
+ChatGPT assisted with brainstorming, troubleshooting, and UX review. OpenAI Codex assisted with implementation, debugging, and testing. The student directed the project, reviewed its behavior and data claims, tested the finished application, and made the final product decisions. See [AI_USAGE.md](AI_USAGE.md).
+
+## More Information
+
+- [Data sources and licensing](DATA_SOURCES.md)
+- [Privacy](PRIVACY.md)
+- [Vercel deployment notes](docs/vercel-demo.md)
+- [Demonstration catalog details](data/demo/README.md)

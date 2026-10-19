@@ -1,6 +1,4 @@
 (() => {
-  // NutriCart SNAP Store Finder Controller
-  // Searches SNAP-authorized retailers using browser geolocation or Census geocoded street addresses.
   // Event contracts:
   //   Listens: 'nutricart:settings-changed' (for snapRadius and reset actions)
   const locationButton = document.querySelector("#location-button");

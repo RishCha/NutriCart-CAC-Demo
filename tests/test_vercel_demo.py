@@ -174,8 +174,7 @@ class VercelDemoTests(unittest.TestCase):
 
     def test_page_background_gradients_do_not_repeat(self):
         styles = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
-        active_theme = styles.split("/* Consumer redesign:", 1)[1]
-        body_rule = active_theme.split("body {", 1)[1].split("}", 1)[0]
+        body_rule = styles.rsplit("body {", 1)[1].split("}", 1)[0]
         self.assertIn("background-repeat: no-repeat", body_rule)
         self.assertIn("background-position: center top", body_rule)
         self.assertIn("background-size: 100% max(48rem, 100vh)", body_rule)

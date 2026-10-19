@@ -1,6 +1,4 @@
 (() => {
-  // NutriCart Contextual Food Cursor Effects Controller
-  // Renders lightweight canvas emoji trails and burst particles on interactive controls.
   // Gated by: (pointer: fine), !reducedMotion, document visibility, and user settings.
   // Event contracts:
   //   Listens: 'nutricart:settings-changed' (for cursorEffects, cursorTrail, clickEffects, reset)

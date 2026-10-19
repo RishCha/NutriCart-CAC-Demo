@@ -14,7 +14,7 @@
   --font-weight-medium: 500;
   --font-weight-semibold: 600;
 
-  /* Semantic Design Tokens (Design-Implementation Ready) */
+  /* Design tokens. */
   --color-primary: var(--green);
   --color-primary-strong: var(--green-dark);
   --color-surface: #ffffff;
@@ -379,12 +379,12 @@ input:disabled { cursor: not-allowed; opacity: .58; background: #edf1ef; }
 .saved-empty { grid-column: 1 / -1; padding: 28px; border: 1px dashed var(--line); border-radius: 14px; color: var(--muted); text-align: center; }
 .danger-zone { margin-top: 28px; padding: 18px; border: 1px solid #bb6b61; border-radius: 14px; }.danger-zone h4 { margin-top: 0; color: #8c241d; }.danger-zone button { margin-top: 12px; border: 1px solid #8c241d; background: white; color: #8c241d; }
 .save-dialog { position: fixed; z-index: 10002; inset: 50% auto auto 50%; width: min(500px, calc(100% - 24px)); max-height: calc(100vh - 32px); overflow-y: auto; padding: 26px; border: 1px solid var(--line); border-radius: 20px; background: #fffdf8; box-shadow: 0 24px 70px #10251d50; transform: translate(-50%, -50%); }.save-dialog h2 { margin-top: 0; }.save-dialog .action-row { justify-content: flex-start; }.result-utilities { display: flex; flex-wrap: wrap; gap: 8px; }
-/* Restrained bento rhythm: the core capability receives more space. */
+/* Home feature grid. */
 .feature-grid { grid-template-columns: 1.35fr .65fr 1fr; }.feature-grid article:first-child { grid-row: span 2; padding: 24px; border: 0; border-radius: 20px; background: var(--sage); }.feature-grid article:last-child { grid-column: span 2; }
 @media (max-width: 900px) { .header-utilities { justify-self: end; }.feature-grid { grid-template-columns: repeat(2, 1fr); }.feature-grid article:first-child { grid-row: auto; }.feature-grid article:last-child { grid-column: auto; } }
 @media (max-width: 700px) { .header-utilities { gap: 2px; }.account-button, .settings-button { padding-inline: 10px; }.account-drawer { padding: 18px; }.account-drawer .settings-header { top: -18px; margin: -18px -18px 16px; }.account-form button[type="submit"] { width: 100%; }.feature-grid, #saved-items { grid-template-columns: 1fr; }.saved-item-card:nth-child(3n + 1) { grid-column: auto; }.save-dialog .action-row button { width: 100%; } }
 
-/* Settings quality pass: centralized, visibly distinct type and spacing scales. */
+/* Settings typography and spacing. */
 :root {
   --text-xs: .78rem; --text-sm: .9rem; --text-base: 16px; --text-lg: 1.08rem; --text-xl: 1.28rem;
   --space-section: 48px; --space-card: 24px; --space-control: 12px; --space-row: 16px; --space-content: 20px;
@@ -554,7 +554,7 @@ input:disabled { cursor: not-allowed; opacity: .58; background: #edf1ef; }
 @media (max-width: 700px) { .journey-context { align-items: stretch; flex-direction: column; } .journey-context .action-row { justify-content: stretch; } }
 @media (max-width: 700px) { .snap-heading { flex-direction: column; gap: 16px; } .snap-program-source { width: 100%; padding-top: 2px; } .snap-program-source img { width: min(118px, 38vw); } .snap-program-source small { max-width: 30rem; } }
 
-/* Consumer redesign: one warm, practical visual language across every tool. */
+/* Shared visual language across tools. */
 :root {
   --green: #1e4d38;
   --green-dark: #133827;
@@ -637,7 +637,7 @@ body {
 .about-section p:not(.hero-eyebrow) { color: #4d6258; line-height: 1.7; }.how-it-works h3 { margin: 4px 0 19px; color: var(--green-dark); }.how-it-works ol { display: grid; gap: 17px; margin: 0; padding: 0; list-style: none; }.how-it-works li { display: flex; align-items: center; gap: 12px; font-weight: 650; }.how-it-works li span { display: grid; flex: 0 0 auto; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: var(--green); color: white; }
 .feature-overview { padding: 78px 0 30px; }.section-intro { max-width: 600px; }.feature-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; margin-top: 30px; }.feature-grid article { padding-top: 18px; border-top: 2px solid #c9d9ce; }.feature-grid article > span { color: #9b6f4f; font-size: .8rem; font-weight: 750; }.feature-grid h3 { margin: 8px 0 5px; color: var(--green-dark); font-size: 1.05rem; }.feature-grid p { margin: 0; color: var(--muted); font-size: .9rem; }
 .meal-plan-heading { padding: clamp(16px, 3vw, 28px); border-radius: 30px 30px 30px 10px; background: linear-gradient(130deg, #f7ead9, #e3efe4); }.meal-plan-heading h1 { margin: 6px 0; color: var(--green-dark); font-size: clamp(1.75rem, 3vw, 2.5rem); letter-spacing: -.035em; overflow-wrap: anywhere; }.meal-day-card { border: 0; border-radius: 22px; box-shadow: 0 8px 24px #17352a0d; }.meal-card { border-top-color: #e6b88e; box-shadow: 0 3px 12px #17352a0a; }
-/* Replace the prior instrument-panel theme with a calm, legible shopping tool. */
+/* Shopping Budget presentation. */
 .budget-view { --budget-cream: var(--dark); --budget-teal: var(--green); --budget-peach: #9b5f3d; color: var(--dark); }
 .budget-intro, .budget-dashboard { min-height: 0; border-color: var(--line); border-radius: 28px; background: #fffdf9; box-shadow: 0 18px 50px #17352a12; }
 .budget-dashboard::before, .budget-intro::before { display: none; }.budget-dashboard { gap: 18px; padding: clamp(22px, 4vw, 44px); }.budget-session-heading { border-color: var(--line); }.budget-session-heading h1, .budget-section-title h2, .budget-money, .budget-purchase > div strong { color: var(--dark); text-shadow: none; }.budget-kicker, .budget-active { color: var(--green); }.budget-active i { background: var(--green); box-shadow: none; }.budget-balance-card, .budget-status-card, .budget-panel, .budget-log-panel { border-color: var(--line); border-radius: 18px; background: #f8faf6; box-shadow: none; }.budget-balance-card { background: linear-gradient(135deg, #e1eee3, #f5eadf); }.budget-tech-label, .budget-section-title > span, .budget-status-card p, .budget-panel label, .budget-empty, .budget-purchase > div span { color: var(--muted); }.budget-secondary-values > div + div, .budget-purchase { border-color: #d2ddd5; }.budget-panel input, .budget-panel select, .budget-currency-input { border-color: #9fb2a7; background: white; color: var(--dark); }.budget-currency-input input { background: transparent; }.budget-button-primary { border-color: var(--green); background: var(--green); box-shadow: none; }.budget-button-secondary { border-color: var(--green); color: var(--green); }.budget-no-plan { border-color: var(--line); border-left-color: var(--green); background: #edf5ef; }.budget-no-plan h3 { color: var(--dark); }.budget-no-plan > p:not(.budget-kicker) { color: var(--muted); }.budget-plan-link, .budget-text-button { color: var(--green); }.budget-new-session { color: #905335; }.budget-progress { border: 0; border-radius: 999px; background: #dce4de; }.budget-progress i { background: var(--green); box-shadow: none; }
@@ -648,7 +648,7 @@ body {
 @media (max-width: 700px) { html { scroll-padding-top: 150px; }.shell { width: calc(100vw - 20px); }.site-header { padding: 8px; }.site-header .view-tabs { display: flex; grid-column: 1 / -1; max-width: 100%; overflow-x: auto; justify-content: flex-start; scrollbar-width: thin; }.view-tabs .tab { flex: 0 0 auto; min-height: 44px; }.settings-button { padding-inline: 12px; }.landing-hero { width: 100%; min-width: 0; min-height: 0; padding: 38px 4px 40px; gap: 32px; overflow: hidden; }.hero-copy { width: calc(100vw - 28px); max-width: calc(100vw - 28px); justify-self: center; }.hero-copy h1 { max-width: 100%; font-size: clamp(2.2rem, 11vw, 3rem); overflow-wrap: break-word; }.hero-copy > p:not(.hero-eyebrow), .hero-copy small { max-width: 100%; font-size: 1rem; overflow-wrap: break-word; }.hero-actions { display: grid; }.hero-actions button { width: 100%; }.hero-visual { width: calc(100vw - 28px); max-width: calc(100vw - 28px); min-width: 0; min-height: 290px; justify-self: center; border-radius: 28px 28px 28px 10px; }.hero-grocery-svg { top: 53%; width: min(92%, 350px); }.visual-card { padding: 10px 12px; }.budget-mini { left: 9px; top: 14px; }.snap-mini { right: 8px; bottom: 13px; }.planner-heading { padding-top: 48px; }.form-sections > .panel { padding: 18px; }.summary-grid, .feature-grid { grid-template-columns: 1fr; }.about-section { margin-top: 55px; padding: 28px 20px; }.feature-overview { padding-top: 56px; }.budget-dashboard { padding: 14px; }.budget-money-primary { font-size: clamp(3rem, 18vw, 4.8rem); }.site-footer { grid-template-columns: 1fr; gap: 18px; }.site-footer nav { flex-direction: column; align-items: flex-start; }.footer-note { grid-column: 1; text-align: left; } }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 
-/* Stitch Locked Design System — Stage 1: App Shell, Hero, Planner, Editorial, and Footer */
+/* App shell, hero, planner, editorial sections, and footer. */
 .shell { width: min(1260px, calc(100% - 40px)); }
 
 /* Hero Section */
@@ -1272,7 +1272,7 @@ body {
   .site-footer .footer-note { grid-column: 1; margin-top: 2px; text-align: left; }
 }
 
-/* Focused registration and profile onboarding. */
+/* Registration and profile onboarding. */
 .account-drawer { width: min(540px, 100%); }
 .account-drawer > .settings-header { padding-bottom: 14px; border-bottom: 1px solid var(--line); }
 .account-intro { margin: 4px 0 22px; }
@@ -1294,7 +1294,7 @@ body {
   .account-name-grid { grid-template-columns: 1fr; }
 }
 
-/* Landing-page story: one connected flow followed by editorial feature detail. */
+/* Connected workflow and feature details. */
 .workflow-story { margin: clamp(54px, 7vw, 88px) 0 0; padding: clamp(34px, 5vw, 58px); border: 1px solid #d6e0d8; border-radius: 32px 32px 32px 12px; background: linear-gradient(135deg, #eef5ee 0%, #fffaf2 68%, #f5e2d3 100%); box-shadow: 0 18px 48px #17352a0d; }
 .workflow-intro { max-width: 760px; }
 .workflow-intro h2 { max-width: 690px; margin: 0; color: var(--green-dark); font-size: clamp(2rem, 4vw, 3.15rem); line-height: 1.06; letter-spacing: -.03em; }

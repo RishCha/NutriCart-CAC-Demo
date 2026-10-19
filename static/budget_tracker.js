@@ -1,6 +1,4 @@
 (() => {
-  // NutriCart Shopping Budget & Shopping Checklist Controller
-  // Client-side in-store shopping companion; uses integer-cent arithmetic for real purchase tracking.
   // Event contracts:
   //   Listens: 'nutricart:budget-opened', 'nutricart:plan-updated', 'nutricart:request-budget-state',
   //            'nutricart:open-saved-shopping'

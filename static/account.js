@@ -1,6 +1,4 @@
 (() => {
-  // NutriCart Account & Saved Content Controller
-  // Manages authentication, session state, CSRF tokens, and user saved items library.
   // Event contracts:
   //   Listens: 'nutricart:plan-updated', 'nutricart:meal-rendered', 'nutricart:budget-state'
   //   Dispatches: 'nutricart:open-saved-plan', 'nutricart:open-saved-meal', 'nutricart:open-saved-shopping',

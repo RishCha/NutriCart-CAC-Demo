@@ -1,6 +1,4 @@
 (() => {
-  // NutriCart Grocery Planner & View Navigation Controller
-  // Authoritative manager for grocery planning, optimizer requests, and top-level tabbed views.
   // Event contracts:
   //   Dispatches: 'nutricart:plan-updated', 'nutricart:budget-opened', 'nutricart:create-meal-plan'
   //   Listens: 'nutricart:navigate', 'nutricart:open-saved-plan'
