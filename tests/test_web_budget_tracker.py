@@ -36,7 +36,7 @@ class ShoppingBudgetPageTests(unittest.TestCase):
         self.assertIn('id="purchase-store-disclosure"', self.page)
         self.assertIn("+ Add store (optional)", self.page)
         self.assertIn("Record Purchase", self.page)
-        self.assertIn("budget_tracker.js?v=planner-budget-56", self.page)
+        self.assertIn("budget_tracker.js?v=retailer-context-64", self.page)
 
     def test_forms_have_real_validation_hooks(self):
         self.assertIn('id="purchase-item" type="text"', self.page)
@@ -205,9 +205,12 @@ class ShoppingBudgetPageTests(unittest.TestCase):
     def test_selected_store_context_is_shown_without_a_locality_fallback(self):
         renderer = self.script.split("function renderStoreContext", 1)[1].split("function clearPurchaseSuccess", 1)[0]
         self.assertIn("context?.selected_store?.name", renderer)
-        self.assertIn("`Shopping at ${storeName}`", renderer)
+        self.assertIn("`Selected SNAP retailer: ${storeName}`", renderer)
         self.assertIn("budgetStoreContext.hidden = !storeName", renderer)
         self.assertNotIn("locality", renderer)
+        self.assertNotIn("Shopping at", renderer)
+        self.assertIn("Basket items are planning suggestions. Prices and product availability vary by retailer and location.", self.page)
+        self.assertNotIn("Prices are recently observed retailer prices", self.page)
         opened = self.script.split('document.addEventListener("nutricart:budget-opened"', 1)[1].split('document.addEventListener("nutricart:plan-updated"', 1)[0]
         updated = self.script.split('document.addEventListener("nutricart:plan-updated"', 1)[1].split('querySelector("#create-grocery-plan")', 1)[0]
         self.assertIn("renderStoreContext(event.detail?.context)", opened)

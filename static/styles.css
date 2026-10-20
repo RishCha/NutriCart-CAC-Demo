@@ -1515,6 +1515,7 @@ body {
 
 /* Compact grocery receipt: real plan prices and package metadata remain authoritative. */
 .receipt-context { margin: 8px 0 0; color: var(--green-dark); font-size: .94rem; font-weight: 750; }
+.basket-availability-note { max-width: 680px; margin: 6px 0 0; color: var(--muted); font-size: .84rem; line-height: 1.5; }
 .results-title-row .settings-summary { margin-top: 4px; font-weight: 600; }
 .grocery-receipt { width: min(100%, 780px); margin: 20px auto 0; padding: clamp(18px, 3vw, 28px); border: 1px solid #d8e2da; border-radius: 18px; background: #fffdf8; box-shadow: 0 10px 28px #17352a0c; font-variant-numeric: tabular-nums; }
 #solver-status:empty { display: none; }
@@ -1531,7 +1532,7 @@ body {
 .receipt-total strong, .receipt-score strong { color: var(--dark); font-size: 1rem; }
 .receipt-total--primary { padding-top: 8px; }
 .receipt-total--primary span, .receipt-total--primary strong { color: var(--green-dark); font-size: 1.08rem; font-weight: 800; }
-.receipt-price-source, .receipt-price-note { margin: 7px 2px 0; color: var(--muted); font-size: .76rem; line-height: 1.45; }
+.receipt-price-source { margin: 7px 2px 0; color: var(--muted); font-size: .76rem; line-height: 1.45; }
 .receipt-price-source { color: var(--green-dark); font-weight: 700; }
 .receipt-score { margin-top: 7px; padding-top: 10px; border-top: 1px solid #cbd8ce; }
 .receipt-score .text-button { grid-column: 1 / -1; margin-top: 0; justify-self: start; }

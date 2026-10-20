@@ -68,7 +68,7 @@
   function renderStoreContext(context) {
     const name = context?.selected_store?.name;
     const storeName = typeof name === "string" ? name.trim() : "";
-    budgetStoreContext.textContent = storeName ? `Shopping at ${storeName}` : "";
+    budgetStoreContext.textContent = storeName ? `Selected SNAP retailer: ${storeName}` : "";
     budgetStoreContext.hidden = !storeName;
   }
 

@@ -6,7 +6,7 @@
   <title>NutriCart</title>
   {% set brand_icon %}{% include "nutricart-logo.svg" %}{% endset %}
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,{{ brand_icon|urlencode }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='settings-icon-60') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='retailer-context-64') }}">
 </head>
 <body>
   <main class="shell">
@@ -202,11 +202,11 @@
       <section id="review-section" class="panel review-panel" hidden aria-labelledby="review-title"><h2 id="review-title">Review your plan</h2><dl id="review-details" class="review-grid"></dl><div class="action-row"><button id="edit-review" class="secondary" type="button">Edit</button><button id="generate-plan" class="primary" type="button" data-cursor-effect="generate-plan">Generate Grocery Plan</button></div><div id="generate-status" class="status" role="status" aria-live="polite"></div></section>
 
       <section id="plan-results" class="results-panel" hidden aria-labelledby="plan-results-title">
-        <div class="results-title-row"><div><h2 id="plan-results-title">Your Grocery Basket</h2><p id="receipt-context" class="receipt-context"></p><p id="result-settings" class="settings-summary" hidden></p><p id="solver-status" class="help" role="status"></p></div><div class="result-utilities"><button id="save-grocery-plan" class="secondary" type="button"{% if not accounts_enabled %} hidden{% endif %}>Save Plan</button><button id="copy-grocery-plan" class="secondary" type="button">Copy Plan</button><button id="alternative-plan" class="secondary" type="button" data-cursor-effect="alternative-plan">Generate Alternative Plan</button><button id="edit-plan" class="secondary" type="button">Edit Plan</button><span id="copy-plan-status" class="sr-only" role="status" aria-live="polite"></span></div></div>
+        <div class="results-title-row"><div><h2 id="plan-results-title">Your Grocery Basket</h2><p id="receipt-context" class="receipt-context"></p><p class="basket-availability-note">Basket items are planning suggestions. Prices and product availability vary by retailer and location.</p><p id="result-settings" class="settings-summary" hidden></p><p id="solver-status" class="help" role="status"></p></div><div class="result-utilities"><button id="save-grocery-plan" class="secondary" type="button"{% if not accounts_enabled %} hidden{% endif %}>Save Plan</button><button id="copy-grocery-plan" class="secondary" type="button">Copy Plan</button><button id="alternative-plan" class="secondary" type="button" data-cursor-effect="alternative-plan">Generate Alternative Plan</button><button id="edit-plan" class="secondary" type="button">Edit Plan</button><span id="copy-plan-status" class="sr-only" role="status" aria-live="polite"></span></div></div>
         <div id="plan-error" class="status error" role="alert" aria-live="assertive"></div>
         <div class="grocery-receipt">
           <section class="receipt-list" aria-labelledby="plan-results-title"><div id="grocery-list"></div></section>
-          <section class="receipt-summary" aria-label="Plan total and budget"><div class="receipt-total receipt-total--primary"><span>Plan Total</span><strong id="total-cost">$0.00</strong></div><div class="receipt-total"><span>Budget</span><strong id="receipt-budget">$0.00</strong></div><div class="receipt-total"><span>Remaining</span><strong id="remaining-budget">$0.00</strong></div><p id="receipt-price-source" class="receipt-price-source" hidden></p><p class="receipt-price-note">Prices are recently observed retailer prices and may differ from today's shelf or checkout price. Availability is not guaranteed.</p><div class="receipt-score"><span>Plan Score</span><strong id="plan-score">0 / 100</strong><button id="score-explanation-toggle" class="text-button" type="button" aria-expanded="false" aria-controls="score-explanation">How is this calculated?</button></div></section>
+          <section class="receipt-summary" aria-label="Plan total and budget"><div class="receipt-total receipt-total--primary"><span>Plan Total</span><strong id="total-cost">$0.00</strong></div><div class="receipt-total"><span>Budget</span><strong id="receipt-budget">$0.00</strong></div><div class="receipt-total"><span>Remaining</span><strong id="remaining-budget">$0.00</strong></div><p id="receipt-price-source" class="receipt-price-source" hidden></p><div class="receipt-score"><span>Plan Score</span><strong id="plan-score">0 / 100</strong><button id="score-explanation-toggle" class="text-button" type="button" aria-expanded="false" aria-controls="score-explanation">How is this calculated?</button></div></section>
           <section id="score-explanation" class="score-explanation" hidden><p>Plan Score shows how closely this basket meets your planning goals. It is not a medical or nutritional rating.</p><div id="score-components"></div></section>
           <section class="nutrition-panel receipt-nutrition" aria-labelledby="nutrition-title"><h3 id="nutrition-title">Estimated nutrition per person/day</h3><p id="nutrition-summary" class="receipt-nutrition-line"></p><p id="estimated-note" class="help" hidden>Some nutrition values use estimated nutrition data.</p></section>
         </div>
@@ -388,7 +388,7 @@
   <script src="{{ url_for('static', filename='grocery.js', v='planner-budget-56') }}" defer></script>
   <script src="{{ url_for('static', filename='price_comparison.js', v='location-planning-1') }}" defer></script>
   <script src="{{ url_for('static', filename='meal_plan.js', v='meal-directions-58') }}" defer></script>
-  <script src="{{ url_for('static', filename='budget_tracker.js', v='planner-budget-56') }}" defer></script>
+  <script src="{{ url_for('static', filename='budget_tracker.js', v='retailer-context-64') }}" defer></script>
   {% if vercel_analytics_enabled %}
   <script>
     window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };

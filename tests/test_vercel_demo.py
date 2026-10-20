@@ -81,7 +81,7 @@ class VercelDemoTests(unittest.TestCase):
         self.assertNotIn("\u2699", template)
         self.assertIn(".settings-icon { display: block; flex: 0 0 20px; width: 20px; height: 20px; }", styles)
         self.assertIn("#account-menu-app-settings { display: flex; align-items: center; gap: 8px; }", styles)
-        self.assertIn("styles.css?v=settings-icon-60", page)
+        self.assertIn("styles.css?v=retailer-context-64", page)
     def test_planner_uses_friendly_people_and_days_validation(self):
         script = (ROOT / "static" / "grocery.js").read_text(encoding="utf-8")
         page = self.client.get("/").text
@@ -122,6 +122,9 @@ class VercelDemoTests(unittest.TestCase):
         self.assertIn(".filter(Boolean).join", render)
         self.assertNotIn("locationLabel", render)
         self.assertNotIn("context.location?.locality", render)
+        page = self.client.get("/").text
+        self.assertIn("Basket items are planning suggestions. Prices and product availability vary by retailer and location.", page)
+        self.assertNotIn("Prices are recently observed retailer prices", page)
 
     def test_unlocked_meal_plan_empty_state_is_compact_and_connected(self):
         page = self.client.get("/").text
@@ -133,7 +136,7 @@ class VercelDemoTests(unittest.TestCase):
         self.assertIn("width: min(100%, 800px)", styles)
         self.assertIn("#meal-plan-ready .primary", styles)
         self.assertNotIn("min-height: 330px", styles.split("/* Compact unlocked Meal Plan action state. */", 1)[1])
-        self.assertIn("styles.css?v=settings-icon-60", page)
+        self.assertIn("styles.css?v=retailer-context-64", page)
 
     def test_feedback_modal_has_optional_two_stage_actions(self):
         page = self.client.get("/").text

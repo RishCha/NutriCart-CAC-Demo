@@ -458,7 +458,7 @@ try {
     check(basketContext.store && basketContext.summary.startsWith(basketContext.store+' · ') && basketContext.summary.includes(diet.charAt(0).toUpperCase()+diet.slice(1)) && basketContext.summary.includes('3 people') && basketContext.summary.includes('1 day') && (!basketContext.location || !basketContext.summary.includes(basketContext.location)),diet+': basket summary uses the selected retailer without locality '+JSON.stringify(basketContext));
   }
   // Same real resolved location and nutrition settings for both diets.
-  await generate('vegan',500.45);check(await evaluate("window.currentPlan.result.groceries.every(p=>p.product_id.startsWith('demo-')) && document.querySelector('#grocery-list').textContent.length>0"),'Independent demo products only');check(await evaluate("document.querySelector('#receipt-price-source').textContent.includes('Example grocery prices')"),'Synthetic price disclosure');await layout('#planner-view','vegan-basket');
+  await generate('vegan',500.45);check(await evaluate("window.currentPlan.result.groceries.every(p=>p.product_id.startsWith('demo-')) && document.querySelector('#grocery-list').textContent.length>0"),'Independent demo products only');check(await evaluate("document.querySelector('#receipt-price-source').textContent.includes('Example grocery prices') && document.querySelector('.basket-availability-note').textContent==='Basket items are planning suggestions. Prices and product availability vary by retailer and location.'"),'Synthetic price and product availability disclosure');await layout('#planner-view','vegan-basket');
   await click('#edit-plan');check(await evaluate("!document.querySelector('#planner-form').hidden && document.querySelector('#budget').value==='500.45'"),'Edit retains original form inputs');
   await click('#snap-tab');
   const changedStore=await evaluate("(()=>{const before=NutriCartStore.get()?.name;const next=[...document.querySelectorAll('[name=snap_store]')].find(radio=>!radio.checked);next.click();return {before,after:NutriCartStore.get()?.name,basketReady:NutriCartWorkflow.get().basketReady}})()");
@@ -502,7 +502,7 @@ try {
   await layout('#meal-plan-view','generated-meals');
   check(await evaluate("[...document.querySelectorAll('#meal-plan-view h1')].filter(h=>h.getClientRects().length).length===1 && document.querySelector('#meal-open-budget').textContent==='Track My Shopping'"),'Generated meals retain explicit shopping action');
   await click('#meal-open-budget');
-  check(await evaluate("(()=>{const name=window.currentPlan.context.selected_store.name.trim(),label=document.querySelector('#budget-store-context');return !label.hidden && label.textContent==='Shopping at '+name && !label.textContent.includes(window.currentPlan.context.location?.locality||'__no_locality__')})()"),'Shopping Budget shows the selected retailer without a locality fallback');
+  check(await evaluate("(()=>{const name=window.currentPlan.context.selected_store.name.trim(),label=document.querySelector('#budget-store-context');return !label.hidden && label.textContent==='Selected SNAP retailer: '+name && !label.textContent.includes(window.currentPlan.context.location?.locality||'__no_locality__')})()"),'Shopping Budget labels the selected SNAP retailer without a locality fallback');
   await layout('#shopping-budget-view','shopping');
   for(const width of [1440,390,320]) {
     await cdp('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:width<=390});await delay(200);
