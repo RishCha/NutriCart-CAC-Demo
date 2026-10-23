@@ -396,6 +396,9 @@
   [document.querySelector("#create-grocery-plan"), document.querySelector("#shopping-list-create-plan")].forEach(button => button.addEventListener("click", () => {
     document.dispatchEvent(new CustomEvent("nutricart:navigate", {detail: {view: "planner"}}));
   }));
+  document.querySelector("#budget-open-meal").addEventListener("click", () => {
+    document.dispatchEvent(new CustomEvent("nutricart:navigate", {detail: {view: "meal"}}));
+  });
 
   shoppingListItems.addEventListener("change", event => {
     const checkbox = event.target.closest("[data-shopping-check]");

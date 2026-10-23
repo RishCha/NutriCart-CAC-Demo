@@ -19,7 +19,7 @@ Planning groceries on a limited budget requires several decisions at once: where
 
 ## How It Works
 
-**Find Store → Build Basket → Meal Plan → Shopping Budget**
+**Find Store → Build Basket → Shopping Budget → Meal Plan**
 
 The core public-demo workflow is available without an account.
 
@@ -62,7 +62,9 @@ The suite covers catalog safety, planning constraints, diet rules, workflow stat
 
 ## AI Assistance
 
-ChatGPT assisted with brainstorming, troubleshooting, and UX review. OpenAI Codex assisted with implementation, debugging, and testing. The student directed the project, reviewed its behavior and data claims, tested the finished application, and made the final product decisions. See [AI_USAGE.md](AI_USAGE.md).
+ChatGPT assisted with brainstorming, troubleshooting, and UX review. OpenAI Codex assisted with implementation, debugging, and testing. The student directed the project, reviewed its behavior and data claims, tested the finished application, and made the final product decisions.
+
+Grocery baskets and meal plans use deterministic application logic. The shipped demo does not use runtime AI recipe generation. See [AI_USAGE.md](AI_USAGE.md).
 
 ## More Information
 

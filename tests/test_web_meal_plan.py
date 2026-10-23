@@ -235,24 +235,32 @@ class MealPlanPageTests(unittest.TestCase):
         self.assertIn("activeRequest.abort()", self.script)
         self.assertIn('requestError.name !== "AbortError"', self.script)
 
-    def test_meals_keep_provenance_in_compact_view(self):
+    def test_meals_keep_provenance_without_visible_directions(self):
         styles = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
-        self.assertNotIn("Uses from your basket:", self.script)
         self.assertIn('node("h4", "", meal.title)', self.script)
         self.assertIn('node("summary", "", "Basket foods")', self.script)
         self.assertIn('node("li", "", product.product_name)', self.script)
-        self.assertNotIn('[data-meal-view="compact"] .meal-product-details { display: none; }', styles)
-        self.assertNotIn('[data-meal-view="compact"] .meal-card h4 { display: none;', styles)
-        self.assertIn('node("h5", "", "How to make it")', self.script)
-        self.assertIn("Array.isArray(meal.directions)", self.script)
-        self.assertIn(".meal-directions", styles)
+        self.assertNotIn("How to make it", self.script)
+        self.assertNotIn("meal.directions", self.script)
+        self.assertNotIn(".meal-directions", styles)
+        self.assertNotIn("meal-ai-note", self.page)
+        self.assertNotIn("recipe_directions_ai_assisted", self.script)
+
+    def test_old_saved_plan_directions_and_ai_metadata_are_ignored(self):
+        legacy = {"days": [{"day": 1, "meals": [{"meal_type": "breakfast", "title": "Oatmeal & Apple",
+                  "products": [{"product_name": "Oatmeal"}], "directions": ["Legacy step"]}],
+                  "nutrition": {}}], "recipe_directions_ai_assisted": True}
+        self.assertIn("Legacy step", str(legacy))
+        self.assertNotIn("meal.directions", self.script)
+        self.assertNotIn("recipe_directions_ai_assisted", self.script)
+        self.assertIn("meal_plan.js?v=meal-final-step-68", self.page)
 
     def test_long_plan_rotation_is_explicit(self):
         self.assertIn("Repeat this ${data.rotation_days}-day rotation for your ${data.days_requested}-day plan.", self.script)
         self.assertNotIn("not independently generated", self.script)
 
     def test_connections_cursor_and_existing_views_remain(self):
-        self.assertIn("Track My Shopping", self.page); self.assertIn("Compare This Basket", self.page)
+        self.assertIn("Back to Shopping Budget", self.page); self.assertIn("Compare This Basket", self.page)
         self.assertIn('navigate("budget")', self.script); self.assertIn('navigate("planner")', self.script)
         self.assertIn('data-cursor-effect="create-meal-plan"', self.page)
         for emoji in ("🍽️", "🥣", "🥗", "✨"):

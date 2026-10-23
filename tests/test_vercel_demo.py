@@ -81,7 +81,7 @@ class VercelDemoTests(unittest.TestCase):
         self.assertNotIn("\u2699", template)
         self.assertIn(".settings-icon { display: block; flex: 0 0 20px; width: 20px; height: 20px; }", styles)
         self.assertIn("#account-menu-app-settings { display: flex; align-items: center; gap: 8px; }", styles)
-        self.assertIn("styles.css?v=retailer-context-64", page)
+        self.assertIn("styles.css?v=workflow-final-68", page)
     def test_planner_uses_friendly_people_and_days_validation(self):
         script = (ROOT / "static" / "grocery.js").read_text(encoding="utf-8")
         page = self.client.get("/").text
@@ -90,8 +90,8 @@ class VercelDemoTests(unittest.TestCase):
         self.assertIn("NutriCart supports plans for 1–31 days.", script)
         self.assertNotIn("People must be a whole number from 1 to 20.", script)
         self.assertNotIn("Days must be a whole number from 1 to 31.", script)
-        self.assertIn('filename=\'grocery.js\', v=\'planner-budget-56\'', (ROOT / "templates" / "index.html").read_text(encoding="utf-8"))
-        self.assertIn("grocery.js?v=planner-budget-56", page)
+        self.assertIn('filename=\'grocery.js\', v=\'workflow-final-68\'', (ROOT / "templates" / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("grocery.js?v=workflow-final-68", page)
 
     def test_planner_required_fields_have_inline_accessible_validation(self):
         script = (ROOT / "static" / "grocery.js").read_text(encoding="utf-8")
@@ -126,6 +126,18 @@ class VercelDemoTests(unittest.TestCase):
         self.assertIn("Basket items are planning suggestions. Prices and product availability vary by retailer and location.", page)
         self.assertNotIn("Prices are recently observed retailer prices", page)
 
+    def test_runtime_recipe_enhancement_is_not_shipped(self):
+        page = self.client.get("/").text
+        script = (ROOT / "static" / "meal_plan.js").read_text(encoding="utf-8")
+        manifest = (ROOT / "RELEASE_MANIFEST.txt").read_text(encoding="utf-8")
+        env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
+        self.assertNotIn("meal-ai-note", page)
+        self.assertNotIn("recipe_directions_ai_assisted", script)
+        self.assertNotIn("recipe_enhancer.py", manifest)
+        self.assertNotIn("test_recipe_enhancer.py", manifest)
+        self.assertNotIn("NUTRICART_AI_RECIPES_ENABLED", env_example)
+        self.assertNotIn("NUTRICART_RECIPE_API_", env_example)
+
     def test_unlocked_meal_plan_empty_state_is_compact_and_connected(self):
         page = self.client.get("/").text
         styles = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
@@ -136,7 +148,7 @@ class VercelDemoTests(unittest.TestCase):
         self.assertIn("width: min(100%, 800px)", styles)
         self.assertIn("#meal-plan-ready .primary", styles)
         self.assertNotIn("min-height: 330px", styles.split("/* Compact unlocked Meal Plan action state. */", 1)[1])
-        self.assertIn("styles.css?v=retailer-context-64", page)
+        self.assertIn("styles.css?v=workflow-final-68", page)
 
     def test_feedback_modal_has_optional_two_stage_actions(self):
         page = self.client.get("/").text
@@ -191,6 +203,15 @@ class VercelDemoTests(unittest.TestCase):
         meal = (ROOT / "static" / "meal_plan.js").read_text(encoding="utf-8")
         for step in ("Step 1 of 4", "Step 2 of 4", "Step 3 of 4", "Step 4 of 4"):
             self.assertIn(step, page)
+        self.assertLess(page.index('id="snap-tab"'), page.index('id="planner-tab"'))
+        self.assertLess(page.index('id="planner-tab"'), page.index('id="shopping-budget-tab"'))
+        self.assertLess(page.index('id="shopping-budget-tab"'), page.index('id="meal-plan-tab"'))
+        self.assertIn('Step 3 of 4</p><h1 id="budget-view-title">Shopping Budget', page)
+        self.assertIn('Step 4 of 4</p><h1 id="meal-plan-title">Meal Plan', page)
+        self.assertIn("Continue to Shopping Budget", page)
+        self.assertIn('id="budget-open-meal"', page)
+        self.assertIn("Continue to Meal Plan", page)
+        self.assertNotIn('id="open-meal-from-plan"', page)
         for message in (
             "Find a SNAP-authorized store first to unlock grocery planning.",
             "Create your grocery basket first to unlock meal ideas.",

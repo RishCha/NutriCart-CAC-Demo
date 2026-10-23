@@ -6,7 +6,7 @@
   <title>NutriCart</title>
   {% set brand_icon %}{% include "nutricart-logo.svg" %}{% endset %}
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,{{ brand_icon|urlencode }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='retailer-context-64') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='workflow-final-68') }}">
 </head>
 <body>
   <main class="shell">
@@ -15,8 +15,8 @@
       <nav class="view-tabs" aria-label="NutriCart tools" role="tablist">
         <button id="snap-tab" class="tab" type="button" role="tab" aria-selected="false" aria-controls="snap-view" data-cursor-context="snap">Find SNAP Stores</button>
         <button id="planner-tab" class="tab" type="button" role="tab" aria-selected="false" aria-controls="planner-view" data-cursor-context="planner"><span>Grocery Planner</span><span class="nav-lock-indicator" aria-hidden="true"><svg class="workflow-lock-svg" viewBox="0 0 24 24" focusable="false"><rect x="5" y="10" width="14" height="10" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path></svg></span></button>
-        <button id="meal-plan-tab" class="tab" type="button" role="tab" aria-selected="false" aria-controls="meal-plan-view" data-cursor-context="meal"><span>Meal Plan</span><span class="nav-lock-indicator" aria-hidden="true"><svg class="workflow-lock-svg" viewBox="0 0 24 24" focusable="false"><rect x="5" y="10" width="14" height="10" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path></svg></span></button>
         <button id="shopping-budget-tab" class="tab" type="button" role="tab" aria-selected="false" aria-controls="shopping-budget-view" data-cursor-context="budget"><span>Shopping Budget</span><span class="nav-lock-indicator" aria-hidden="true"><svg class="workflow-lock-svg" viewBox="0 0 24 24" focusable="false"><rect x="5" y="10" width="14" height="10" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path></svg></span></button>
+        <button id="meal-plan-tab" class="tab" type="button" role="tab" aria-selected="false" aria-controls="meal-plan-view" data-cursor-context="meal"><span>Meal Plan</span><span class="nav-lock-indicator" aria-hidden="true"><svg class="workflow-lock-svg" viewBox="0 0 24 24" focusable="false"><rect x="5" y="10" width="14" height="10" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path></svg></span></button>
       </nav>
       <div class="header-utilities">
         <div class="app-settings-utility"{% if account_user %} hidden{% endif %}>
@@ -106,7 +106,7 @@
         <div class="snap-heading"><div><p class="workflow-step-label">Step 1 of 4</p><h1 id="locator-title">Find SNAP Stores</h1><p class="intro">Let’s start by finding stores near you.</p></div></div>
         <aside id="snap-plan-context" class="journey-context" hidden aria-labelledby="snap-context-title">
           <div><h2 id="snap-context-title">Find a store, then return to your plan</h2><p id="snap-plan-summary" class="journey-source"></p></div>
-          <div class="action-row"><button id="snap-back-to-plan" class="secondary" type="button">Back to Grocery Plan</button><button id="snap-open-meal" class="secondary" type="button">Meal Plan</button><button id="snap-open-budget" class="secondary" type="button">Shopping Budget</button></div>
+          <div class="action-row"><button id="snap-back-to-plan" class="secondary" type="button">Back to Grocery Plan</button><button id="snap-open-budget" class="secondary" type="button">Shopping Budget</button><button id="snap-open-meal" class="secondary" type="button">Meal Plan</button></div>
         </aside>
         <div id="search-panel">
           <section class="location-picker" aria-labelledby="location-title"><h2 id="location-title" class="sr-only">Search by location or address</h2><button id="location-button" class="primary search-action" type="button" data-cursor-effect="location">Use My Current Location</button><div id="detected-location" class="detected-location" role="status" aria-live="polite" hidden><span class="location-confirmation-icon" aria-hidden="true">&#10003;</span><div><strong>Location Acquired</strong><p id="snap-planning-location"></p><p id="detected-location-note" class="help" hidden>Address lookup &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap contributors</a>.</p></div></div><div class="or"><span>OR</span></div><form id="address-form"><label for="address">Street address</label><input id="address" name="address" type="text" autocomplete="street-address" placeholder="123 Main Street, Anytown, NY 12345" aria-describedby="address-guidance" required><p id="address-guidance" class="help">Include street, city, state, and ZIP code.</p><button id="address-button" class="secondary search-action" type="submit" data-cursor-effect="address-search">Search by Address</button></form></section>
@@ -210,7 +210,7 @@
           <section id="score-explanation" class="score-explanation" hidden><p>Plan Score shows how closely this basket meets your planning goals. It is not a medical or nutritional rating.</p><div id="score-components"></div></section>
           <section class="nutrition-panel receipt-nutrition" aria-labelledby="nutrition-title"><h3 id="nutrition-title">Estimated nutrition per person/day</h3><p id="nutrition-summary" class="receipt-nutrition-line"></p><p id="estimated-note" class="help" hidden>Some nutrition values use estimated nutrition data.</p></section>
         </div>
-        <section class="next-actions guided-next" aria-labelledby="next-actions-title"><h3 id="next-actions-title">Ready to plan your meals?</h3><button id="open-meal-from-plan" class="primary" type="button" data-next-action="meal" data-cursor-effect="create-meal-plan">Create Meal Plan</button><details class="other-plan-actions"><summary>Other actions</summary><div class="action-row"><button id="compare-from-plan" class="secondary" type="button" data-next-action="compare">Compare Store Prices</button><button id="start-shopping-from-plan" class="secondary" type="button" data-next-action="budget">Track Shopping</button><button id="find-snap-from-plan" class="secondary" type="button" data-next-action="snap">Find SNAP Stores</button></div></details></section>
+        <section class="next-actions guided-next" aria-labelledby="next-actions-title"><h3 id="next-actions-title">Your grocery plan is ready.</h3><p>Continue to Shopping Budget to use your list and track spending while you shop.</p><button id="start-shopping-from-plan" class="primary" type="button" data-next-action="budget">Continue to Shopping Budget</button><details class="other-plan-actions"><summary>Other actions</summary><div class="action-row"><button id="compare-from-plan" class="secondary" type="button" data-next-action="compare">Compare Store Prices</button><button id="find-snap-from-plan" class="secondary" type="button" data-next-action="snap">Find SNAP Stores</button></div></details></section>
         <section id="basket-comparison" class="price-comparison-panel" hidden aria-labelledby="basket-comparison-title">
           <h3 id="basket-comparison-title">Compare Store Prices</h3>
           <p class="help">Store price comparison is unavailable for example groceries.</p>
@@ -222,10 +222,10 @@
     </section>
 
     <section id="meal-plan-view" class="app-view meal-plan-view" role="tabpanel" tabindex="-1" hidden aria-labelledby="meal-plan-tab meal-plan-title">
-      <header class="meal-plan-heading" hidden><p class="workflow-step-label">Step 3 of 4</p><h1 id="meal-plan-title">Meal Plan</h1><p class="meal-plan-subtitle">Turn your grocery basket into simple meal ideas.</p></header>
+      <header class="meal-plan-heading" hidden><p class="workflow-step-label">Step 4 of 4</p><h1 id="meal-plan-title">Meal Plan</h1><p class="meal-plan-subtitle">Turn your grocery basket into simple meal ideas.</p></header>
       <section id="meal-plan-empty" class="workflow-locked-card" role="status" aria-live="polite" aria-labelledby="meal-empty-title">
         <span class="workflow-lock-badge" aria-hidden="true"><svg class="workflow-lock-svg" viewBox="0 0 24 24" focusable="false"><rect x="5" y="10" width="14" height="10" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path></svg></span>
-        <p class="workflow-step-label">Step 3 of 4</p>
+        <p class="workflow-step-label">Step 4 of 4</p>
         <h1 id="meal-empty-title" class="workflow-locked-title">Meal Plan</h1>
         <p class="workflow-locked-message">Create your grocery basket first to unlock meal ideas.</p>
         <button id="create-plan-from-meals" class="primary" type="button">Find SNAP Stores</button>
@@ -237,30 +237,28 @@
       </section>
       <p id="meal-plan-status" class="status" role="status" aria-live="polite"></p>
       <section id="meal-plan-results" hidden aria-labelledby="meal-results-title">
-        <div class="meal-results-heading"><h2 id="meal-results-title">Daily Meals</h2><p id="meal-source-summary" class="journey-source"></p></div>
-        <p id="meal-rotation-note" class="help"></p>
+        <div class="meal-results-intro"><div class="meal-results-heading"><div><h2 id="meal-results-title">Daily Meals</h2><p id="meal-rotation-note" class="help"></p></div><p id="meal-source-summary" class="journey-source"></p></div></div>
         <div id="meal-days" class="meal-days"></div>
         <section class="basket-nutrition-overview" aria-labelledby="basket-nutrition-title">
           <h2 id="basket-nutrition-title">Basket Nutrition</h2>
           <p class="meal-note">Average per person, per day</p>
           <div id="meal-basket-nutrition"></div>
         </section>
-        <div class="guided-next"><h3>Ready to shop?</h3><button id="meal-open-budget" class="primary" type="button">Track My Shopping</button></div>
-        <div class="action-row peer-action-row"><button id="meal-find-snap" class="secondary" type="button">Find SNAP Stores</button><button id="meal-back-to-plan" class="secondary" type="button">Back to Grocery Plan</button><button id="save-meal-plan" class="secondary" type="button"{% if not accounts_enabled %} hidden{% endif %}>Save Meal Plan</button><button id="meal-compare-basket" class="secondary" type="button">Compare This Basket</button></div>
+        <div class="action-row peer-action-row"><button id="meal-back-to-budget" class="secondary" type="button">Back to Shopping Budget</button><button id="meal-back-to-plan" class="secondary" type="button">Back to Grocery Plan</button><button id="save-meal-plan" class="secondary" type="button"{% if not accounts_enabled %} hidden{% endif %}>Save Meal Plan</button><button id="meal-compare-basket" class="secondary" type="button">Compare This Basket</button><button id="meal-find-snap" class="secondary" type="button">Find SNAP Stores</button></div>
       </section>
     </section>
 
     <section id="shopping-budget-view" class="app-view budget-view" role="tabpanel" tabindex="-1" hidden aria-labelledby="shopping-budget-tab budget-view-title">
       <section id="shopping-budget-locked" class="workflow-locked-card" role="status" aria-live="polite" aria-labelledby="budget-locked-title">
         <span class="workflow-lock-badge" aria-hidden="true"><svg class="workflow-lock-svg" viewBox="0 0 24 24" focusable="false"><rect x="5" y="10" width="14" height="10" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path></svg></span>
-        <p class="workflow-step-label">Step 4 of 4</p>
+        <p class="workflow-step-label">Step 3 of 4</p>
         <h1 id="budget-locked-title" class="workflow-locked-title">Shopping Budget</h1>
         <p class="workflow-locked-message">Create your grocery basket first to start tracking your shopping.</p>
         <button id="budget-locked-action" class="primary" type="button">Find SNAP Stores</button>
       </section>
       <div id="budget-dashboard" class="budget-dashboard" hidden>
         <header class="budget-session-heading budget-reveal">
-          <div><p class="workflow-step-label">Step 4 of 4</p><h1 id="budget-view-title">Shopping Budget</h1></div>
+          <div><p class="workflow-step-label">Step 3 of 4</p><h1 id="budget-view-title">Shopping Budget</h1></div>
           <p id="budget-store-context" class="budget-store-context" hidden></p>
         </header>
 
@@ -350,6 +348,7 @@
             <button id="new-budget-session" class="budget-text-button budget-new-session" type="button">Start New Session</button>
           </div>
         </section>
+        <section class="guided-next budget-next-step" aria-labelledby="budget-next-title"><h2 id="budget-next-title">Continue to Meal Plan</h2><p>Turn the foods in your grocery plan into simple meal ideas.</p><button id="budget-open-meal" class="primary" type="button">Continue to Meal Plan</button></section>
         <p id="budget-live-status" class="sr-only" role="status" aria-live="polite"></p>
       </div>
     </section>
@@ -385,10 +384,10 @@
   <script src="{{ url_for('static', filename='password_fields.js', v='account-recovery-1') }}" defer></script>
   <script src="{{ url_for('static', filename='account.js', v='demo-account-28') }}" defer></script>
   <script src="{{ url_for('static', filename='app.js', v='locked-steps-32') }}" defer></script>
-  <script src="{{ url_for('static', filename='grocery.js', v='planner-budget-56') }}" defer></script>
+  <script src="{{ url_for('static', filename='grocery.js', v='workflow-final-68') }}" defer></script>
   <script src="{{ url_for('static', filename='price_comparison.js', v='location-planning-1') }}" defer></script>
-  <script src="{{ url_for('static', filename='meal_plan.js', v='meal-directions-58') }}" defer></script>
-  <script src="{{ url_for('static', filename='budget_tracker.js', v='retailer-context-64') }}" defer></script>
+  <script src="{{ url_for('static', filename='meal_plan.js', v='meal-final-step-68') }}" defer></script>
+  <script src="{{ url_for('static', filename='budget_tracker.js', v='workflow-final-68') }}" defer></script>
   {% if vercel_analytics_enabled %}
   <script>
     window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };

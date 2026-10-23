@@ -71,15 +71,6 @@
     products.forEach(product => list.append(node("li", "", product.product_name)));
     details.append(list);
     article.append(details);
-    const preparationSteps = Array.isArray(meal.directions) ? meal.directions.filter(step => typeof step === "string" && step.trim()) : [];
-    if (preparationSteps.length) {
-      const directions = node("section", "meal-directions");
-      directions.append(node("h5", "", "How to make it"));
-      const steps = node("ol");
-      preparationSteps.forEach(step => steps.append(node("li", "", step)));
-      directions.append(steps);
-      article.append(directions);
-    }
     return article;
   }
 
@@ -155,7 +146,7 @@
     currentPlan = {groceries: saved.groceries || [], context: saved.context || {targets: {}}};
     render(saved.mealPlan); navigate("meal"); setStatus("Saved meal plan opened.", false, true);
   });
-  document.querySelector("#meal-open-budget").addEventListener("click", () => navigate("budget"));
+  document.querySelector("#meal-back-to-budget").addEventListener("click", () => navigate("budget"));
   document.querySelector("#meal-back-to-plan").addEventListener("click", () => navigate("planner"));
   document.querySelector("#meal-find-snap").addEventListener("click", () => navigate("snap"));
   document.querySelector("#meal-compare-basket").addEventListener("click", () => { navigate("planner"); setTimeout(() => document.dispatchEvent(new Event("nutricart:open-comparison")), 420); });

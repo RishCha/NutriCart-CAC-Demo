@@ -36,7 +36,7 @@ class ShoppingBudgetPageTests(unittest.TestCase):
         self.assertIn('id="purchase-store-disclosure"', self.page)
         self.assertIn("+ Add store (optional)", self.page)
         self.assertIn("Record Purchase", self.page)
-        self.assertIn("budget_tracker.js?v=retailer-context-64", self.page)
+        self.assertIn("budget_tracker.js?v=workflow-final-68", self.page)
 
     def test_forms_have_real_validation_hooks(self):
         self.assertIn('id="purchase-item" type="text"', self.page)

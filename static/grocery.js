@@ -958,7 +958,7 @@
   updatePlanningLocation();
   document.querySelector("#footer-settings")?.addEventListener("click", () => document.querySelector("#settings-button")?.click());
   document.querySelector(".view-tabs")?.addEventListener("keydown", event => {
-    const tabs = [snapTab, plannerTab, mealTab, budgetTab];
+    const tabs = [snapTab, plannerTab, budgetTab, mealTab];
     const index = tabs.indexOf(event.target);
     if (index < 0 || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
@@ -1192,6 +1192,6 @@
   document.querySelector(`input[name="preference"][value="${initialPriority}"]`).checked = true;
   document.querySelector("#nutrition-focus").value = initialFocus;
   document.querySelector("#planner-options").open = window.NutriCartSettings?.getSetting("advancedPlannerDefault") === "expanded";
-  [snapTab, plannerTab, mealTab, budgetTab].forEach(tab => { tab.tabIndex = tab === snapTab ? 0 : -1; });
+  [snapTab, plannerTab, budgetTab, mealTab].forEach(tab => { tab.tabIndex = tab === snapTab ? 0 : -1; });
   // Every visit starts at Home; saved preferences never select a workflow.
 })();
