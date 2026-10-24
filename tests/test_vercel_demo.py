@@ -85,22 +85,22 @@ class VercelDemoTests(unittest.TestCase):
         self.assertNotIn('document.querySelector(".app-settings-utility").hidden', (ROOT / "static" / "account.js").read_text(encoding="utf-8"))
         self.assertIn("styles.css?v=saved-cards-74b", page)
 
-    def test_shared_brand_logo_is_transparent_line_art(self):
+    def test_shared_brand_logo_is_a_transparent_shopping_cart(self):
         logo = (ROOT / "templates" / "nutricart-logo.svg").read_text(encoding="utf-8").strip()
         page = self.client.get("/").text
         reset = self.client.get("/reset-password").text
         self.assertIn('viewBox="0 0 64 64"', logo)
-        self.assertIn('fill="none"', logo)
+        self.assertIn('id="shopping-cart-symbol"', logo)
+        self.assertIn('class="cart-handle"', logo)
+        self.assertIn('class="cart-basket"', logo)
+        self.assertIn('class="cart-slats"', logo)
+        self.assertEqual(logo.count('class="cart-wheel"'), 2)
         self.assertIn('stroke="#194f38"', logo)
-        self.assertIn('id="basket-symbol"', logo)
-        self.assertIn('class="basket-handle"', logo)
-        self.assertIn('class="basket-rim"', logo)
-        self.assertIn('class="basket-body"', logo)
-        self.assertIn('class="basket-slats"', logo)
-        self.assertNotIn('M32 24C25 18', logo)
-        self.assertNotIn('m15 27 8-14', logo)
-        self.assertNotIn('fill="#194f38"', logo)
+        self.assertNotIn('id="basket-symbol"', logo)
+        self.assertNotIn('class="basket-handle"', logo)
+        self.assertNotIn("leaf", logo.lower())
         self.assertNotIn("<rect", logo)
+        self.assertNotRegex(logo, r'<(?:svg|g)[^>]+fill="#194f38"')
         self.assertEqual(page.count(logo), 2)
         self.assertIn(logo, reset)
         self.assertIn("templates/nutricart-logo.svg", (ROOT / "RELEASE_MANIFEST.txt").read_text(encoding="utf-8"))

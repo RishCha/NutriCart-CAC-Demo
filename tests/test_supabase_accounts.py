@@ -181,11 +181,31 @@ class SupabaseAdapterTests(unittest.TestCase):
     def test_new_password_controls_expose_the_same_policy_as_the_server(self):
         page = Path("templates/index.html").read_text(encoding="utf-8")
         reset = Path("templates/reset_password.html").read_text(encoding="utf-8")
-        hint = "Use at least 10 characters, including a letter and a number."
-        self.assertEqual(page.count(hint), 4)
-        self.assertEqual(reset.count(hint), 2)
+        requirement = "Use at least 10 characters and include both letters and numbers."
+        stronger = "For a stronger password, use a longer phrase with a mix of letters and numbers."
+        self.assertEqual(page.count(requirement), 4)
+        self.assertEqual(reset.count(requirement), 2)
+        self.assertEqual(page.count(stronger), 2)
+        self.assertEqual(reset.count(stronger), 1)
         self.assertEqual(page.count('pattern="(?=.*[A-Za-z])(?=.*[0-9]).{10,}"'), 2)
         self.assertEqual(reset.count('pattern="(?=.*[A-Za-z])(?=.*[0-9]).{10,}"'), 1)
+
+    def test_signup_client_validates_and_throttles_safe_retries(self):
+        page = Path("templates/index.html").read_text(encoding="utf-8")
+        account = Path("static/account.js").read_text(encoding="utf-8")
+        passwords = Path("static/password_fields.js").read_text(encoding="utf-8")
+        self.assertIn('id="create-account-submit"', page)
+        self.assertIn('function meetsRequirements(value)', passwords)
+        self.assertIn('input.setCustomValidity(input.value && !meetsRequirements(input.value) ? requirementMessage : "")', passwords)
+        self.assertIn('!window.NutriCartPasswords?.meetsRequirements(password.value)', account)
+        self.assertIn('form.reportValidity()', account)
+        self.assertIn('if (authPending) return;', account)
+        self.assertIn('REGISTRATION_RETRY_DELAY_MS = 3000', account)
+        self.assertIn('REGISTRATION_RATE_LIMIT_COOLDOWN_MS = 60000', account)
+        self.assertIn('Too many account attempts. Please wait a moment before trying again.', account)
+        self.assertIn('error.status === 429', account)
+        self.assertNotIn('setStatus(error.status ? error.message : (path.endsWith("register")', account)
+        self.assertIn("We could not create the account. Check that your email is valid and your password meets the requirements, then try again.", account)
 
     def test_saved_item_uses_verified_owner_and_user_token(self):
         row = {

@@ -31,7 +31,13 @@
   let authMode = "signin";
   let authRevision = 0;
   let authPending = false;
+  let registrationRetryUntil = 0;
+  let registrationRetryTimer = null;
+  let registrationRetryMessage = "";
   let transientAuthStatus = false;
+  const REGISTRATION_RETRY_DELAY_MS = 3000;
+  const REGISTRATION_RATE_LIMIT_COOLDOWN_MS = 60000;
+  const REGISTRATION_RATE_LIMIT_MESSAGE = "Too many account attempts. Please wait a moment before trying again.";
 
   function showGroceryPlanSaved(saved) {
     const button = document.querySelector("#save-grocery-plan");
@@ -155,6 +161,7 @@
     document.querySelector("#sign-in-intro").hidden = mode !== "signin";
     document.querySelector("#create-account-intro").hidden = !create;
     dialog.scrollTop = 0;
+    if (create && registrationRetryActive()) setStatus(registrationRetryMessage, true);
   }
 
   async function refreshSession() {
@@ -162,17 +169,47 @@
     csrfToken = data.csrf_token; user = data.user || null; renderUser();
   }
 
+  function registrationRetryActive() {
+    return Date.now() < registrationRetryUntil;
+  }
+
+  function holdRegistrationSubmit(milliseconds, message) {
+    registrationRetryUntil = Math.max(registrationRetryUntil, Date.now() + milliseconds);
+    registrationRetryMessage = message;
+    const submit = document.querySelector("#create-account-submit");
+    submit.disabled = true;
+    window.clearTimeout(registrationRetryTimer);
+    registrationRetryTimer = window.setTimeout(() => {
+      if (!authPending && !registrationRetryActive()) {
+        submit.disabled = false;
+        registrationRetryMessage = "";
+      }
+    }, Math.max(0, registrationRetryUntil - Date.now()) + 25);
+  }
+
+  function registrationErrorMessage(error) {
+    if (error.status === 429) return REGISTRATION_RATE_LIMIT_MESSAGE;
+    if (!error.status) return "We could not reach account services. Check your connection and try again.";
+    if (error.status >= 500) return "Account services are temporarily unavailable. Please wait a moment and try again.";
+    return "We could not create the account. Check that your email is valid and your password meets the requirements, then try again.";
+  }
+
   async function authenticate(path, payload) {
+    const registering = path.endsWith("register");
     if (authPending) return;
+    if (registering && registrationRetryActive()) {
+      setStatus(registrationRetryMessage, true);
+      return;
+    }
     authPending = true;
     const authSubmits = document.querySelectorAll('#sign-in-form [type="submit"], #create-account-form [type="submit"]');
     authSubmits.forEach(control => { control.disabled = true; });
     const revision = ++authRevision;
     setStatus("");
-    const form = path.endsWith("register") ? document.querySelector("#create-account-form") : document.querySelector("#sign-in-form");
+    const form = registering ? document.querySelector("#create-account-form") : document.querySelector("#sign-in-form");
     const submit = form.querySelector('[type="submit"]');
     try {
-      submit.disabled = true; submit.textContent = path.endsWith("register") ? "Creating account..." : "Signing in...";
+      submit.disabled = true; submit.textContent = registering ? "Creating account..." : "Signing in...";
       const data = await api(path, {method: "POST", body: JSON.stringify(payload)});
       if (data.confirmation_required) {
         user = null;
@@ -187,20 +224,29 @@
       } else {
         user = data.user; renderUser();
         if (revision === authRevision) {
-          if (path.endsWith("register")) setStatus("Welcome to NutriCart, " + user.first_name + ". Your account is ready.");
+          if (registering) setStatus("Welcome to NutriCart, " + user.first_name + ". Your account is ready.");
           else setStatus("Signed in. Your saved content is available on this device.", false, {transientAuth: true});
         }
         if (pendingSave) { closeAccount(); openSaveDialog(pendingSave); }
       }
     } catch (error) {
       if (revision === authRevision) {
-        if (!path.endsWith("register") && error.message === "Confirm your email before signing in.") showConfirmationAssistance(payload.email);
-        setStatus(error.status ? error.message : (path.endsWith("register") ? "The account could not be created. Please try again." : "Sign in failed. Please try again."), true);
+        if (!registering && error.message === "Confirm your email before signing in.") showConfirmationAssistance(payload.email);
+        if (registering) {
+          const message = registrationErrorMessage(error);
+          holdRegistrationSubmit(error.status === 429 ? REGISTRATION_RATE_LIMIT_COOLDOWN_MS : REGISTRATION_RETRY_DELAY_MS, message);
+          setStatus(message, true);
+        } else {
+          setStatus(error.status ? error.message : "Sign in failed. Please try again.", true);
+        }
       }
     }
     finally {
-      authPending = false; authSubmits.forEach(control => { control.disabled = false; });
-      submit.textContent = path.endsWith("register") ? "Create Account" : "Sign In";
+      authPending = false;
+      authSubmits.forEach(control => {
+        control.disabled = control.id === "create-account-submit" && registrationRetryActive();
+      });
+      submit.textContent = registering ? "Create Account" : "Sign In";
     }
   }
 
@@ -463,7 +509,17 @@
       } finally { submit.disabled = false; }
     });
     document.querySelector("#sign-in-form").addEventListener("submit", event => { event.preventDefault(); authenticate("/api/account/login", {email: document.querySelector("#sign-in-email").value, password: document.querySelector("#sign-in-password").value}); });
-    document.querySelector("#create-account-form").addEventListener("submit", event => { event.preventDefault(); authenticate("/api/account/register", {first_name: document.querySelector("#account-first-name").value, last_name: document.querySelector("#account-last-name").value, email: document.querySelector("#account-email").value, password: document.querySelector("#account-password").value, confirm_password: document.querySelector("#account-password-confirm").value}); });
+    document.querySelector("#create-account-form").addEventListener("submit", event => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const password = document.querySelector("#account-password");
+      if (!window.NutriCartPasswords?.meetsRequirements(password.value) || !form.checkValidity()) {
+        setStatus(window.NutriCartPasswords?.requirementMessage || "Use at least 10 characters and include both letters and numbers.", true);
+        form.reportValidity();
+        return;
+      }
+      authenticate("/api/account/register", {first_name: document.querySelector("#account-first-name").value, last_name: document.querySelector("#account-last-name").value, email: document.querySelector("#account-email").value, password: password.value, confirm_password: document.querySelector("#account-password-confirm").value});
+    });
     document.querySelector("#resend-confirmation-form").addEventListener("submit", async event => {
       event.preventDefault();
       const revision = ++authRevision;
