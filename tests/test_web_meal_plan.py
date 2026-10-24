@@ -196,6 +196,9 @@ class MealPlanPageTests(unittest.TestCase):
         self.assertIn('id="create-meal-plan"', self.page); self.assertIn('fetch("/api/meal-plan"', self.script)
         self.assertIn("currentPlan.groceries.map", self.script); self.assertIn("product_id: String(item.product_id)", self.script)
         self.assertIn('addEventListener("nutricart:plan-updated"', self.script)
+        self.assertIn('addEventListener("nutricart:navigate"', self.script)
+        self.assertIn("window.NutriCartPlanState?.get()", self.script)
+        self.assertIn("revision === currentPlanRevision", self.script)
         self.assertIn("Your grocery plan changed. Generate a new Meal Plan", self.script)
         self.assertIn("results.hidden = true", self.script)
         self.assertIn('addEventListener("nutricart:create-meal-plan", createMealPlan)', self.script)
@@ -211,6 +214,17 @@ class MealPlanPageTests(unittest.TestCase):
         self.assertNotIn("Meal Ideas from Your Basket", self.page)
         self.assertIn('id="basket-nutrition-title">Basket Nutrition</h2>', self.page)
         self.assertEqual(self.page.count("Average per person, per day"), 1)
+
+    def test_generated_intro_context_rotation_and_completion_navigation(self):
+        for text in ("Your Meal Plan", "Daily Meals", "Your plan is ready!", "Plan Another Grocery Trip", "Back to Grocery Basket"):
+            self.assertIn(text, self.page + self.script)
+        self.assertIn('id="meal-plan-context"', self.page)
+        self.assertIn('class="journey-source" hidden', self.page)
+        self.assertIn('join(" · ")', self.script)
+        self.assertIn("A ${data.rotation_days}-day meal rotation for your ${data.days_requested}-day grocery plan.", self.script)
+        self.assertIn('document.querySelector("#meal-plan-another")', self.script)
+        self.assertIn('document.querySelector("#meal-back-to-basket")', self.script)
+        self.assertIn('document.querySelector("#edit-plan").click()', self.script)
 
     def test_nutrition_commentary_is_removed_from_the_ui(self):
         for text in ("Nutrition Insights", "PLANNING OBSERVATIONS", "nutrition-insights", "meal-insights",
@@ -253,10 +267,10 @@ class MealPlanPageTests(unittest.TestCase):
         self.assertIn("Legacy step", str(legacy))
         self.assertNotIn("meal.directions", self.script)
         self.assertNotIn("recipe_directions_ai_assisted", self.script)
-        self.assertIn("meal_plan.js?v=meal-final-step-68", self.page)
+        self.assertIn("meal_plan.js?v=diet-signout-73", self.page)
 
     def test_long_plan_rotation_is_explicit(self):
-        self.assertIn("Repeat this ${data.rotation_days}-day rotation for your ${data.days_requested}-day plan.", self.script)
+        self.assertIn("A ${data.rotation_days}-day meal rotation for your ${data.days_requested}-day grocery plan.", self.script)
         self.assertNotIn("not independently generated", self.script)
 
     def test_connections_cursor_and_existing_views_remain(self):

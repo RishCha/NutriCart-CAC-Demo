@@ -95,7 +95,6 @@
   }
 
   const button = document.querySelector("#settings-button");
-  const menuButton = document.querySelector("#account-menu-app-settings");
   let returnFocus = button;
   const dialog = document.querySelector("#settings-dialog");
   const backdrop = document.querySelector("#settings-backdrop");
@@ -123,8 +122,8 @@
     return [...dialog.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), summary, [tabindex]:not([tabindex="-1"])')].filter(control => control.getClientRects().length);
   }
 
-  function openSettings(event) {
-    returnFocus = event?.currentTarget === menuButton ? document.querySelector("#account-button") : button;
+  function openSettings() {
+    returnFocus = button;
     dialog.hidden = false; backdrop.hidden = false;
     document.body.classList.add("settings-open");
     closeButton.focus();
@@ -138,7 +137,6 @@
   }
 
   button.addEventListener("click", openSettings);
-  menuButton.addEventListener("click", openSettings);
   closeButton.addEventListener("click", closeSettings);
   backdrop.addEventListener("click", closeSettings);
   dialog.addEventListener("keydown", event => {

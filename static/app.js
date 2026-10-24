@@ -24,7 +24,10 @@
   buildButton.className = "primary store-build-button";
   buildButton.textContent = "Build My Grocery Plan";
   let selectedStore = null;
-  window.NutriCartStore = {get: () => selectedStore ? {...selectedStore} : null};
+  window.NutriCartStore = {
+    get: () => selectedStore ? {...selectedStore} : null,
+    displayName: store => storeDisplayName(store),
+  };
   function publishStore(store) {
     selectedStore = store ? {...store} : null;
     document.dispatchEvent(new CustomEvent("nutricart:store-changed", {detail: {store: selectedStore ? {...selectedStore} : null}}));
@@ -129,11 +132,32 @@
     return data;
   }
 
+  function storeDisplayName(store) {
+    const provided = String(store?.display_name || "").trim();
+    if (provided) return provided;
+    let source = String(store?.store_name || "").replace(/\s+/g, " ").trim();
+    if (!source || !/[a-z]/i.test(source)) return "SNAP-authorized retailer";
+    const identified = source.match(/^(.+?\S)\s+#\s*[a-z0-9-]+(?:\s+[a-z0-9-]+)*$/i);
+    if (identified && /[a-z]/i.test(identified[1])) source = identified[1].trim();
+    else {
+      const numbered = source.match(/^(.+?\S)\s+\d{3,}$/);
+      if (numbered && /[a-z]/i.test(numbered[1])) source = numbered[1].trim();
+    }
+    if (source === source.toLowerCase() || source === source.toUpperCase()) {
+      source = source.toLowerCase().replace(/(^|[\s-])([a-z])/g, (_match, boundary, letter) => boundary + letter.toUpperCase());
+      ["CVS", "IGA", "USA"].forEach(acronym => {
+        source = source.replace(new RegExp(`\\b${acronym[0]}${acronym.slice(1).toLowerCase()}\\b`, "g"), acronym);
+      });
+    }
+    return source;
+  }
+
   function renderStore(store, index) {
     const card = document.createElement("article");
     card.className = "store-card";
     const heading = document.createElement("h3");
-    heading.textContent = store.store_name || "Unnamed retailer";
+    const displayName = storeDisplayName(store);
+    heading.textContent = displayName;
     const label = document.createElement("label");
     label.className = "store-choice";
     const radio = document.createElement("input");
@@ -148,7 +172,13 @@
     card.append(heading);
     radio.addEventListener("change", () => {
       if (!radio.checked || searchInProgress) return;
-      publishStore({record_id: store.record_id ?? null, name: store.store_name || "Unnamed retailer", city: store.city || "", region: store.state || ""});
+      publishStore({
+        record_id: store.record_id ?? null,
+        name: displayName,
+        source_name: String(store.store_name || "").trim(),
+        city: store.city || "",
+        region: store.state || "",
+      });
       resultsContainer.querySelectorAll(".store-card").forEach(row => row.classList.toggle("is-selected", row.querySelector("input").checked));
       updatePlanningTransition();
     });
@@ -319,6 +349,16 @@
     resultsContainer.replaceChildren();
     resultsSection.hidden = true;
     status.textContent = "Choose a new location to search.";
+  });
+  document.addEventListener("nutricart:account-signed-out", () => {
+    locationRequestId += 1;
+    searchRequestId += 1;
+    if (activeSearchController) activeSearchController.abort();
+    activeSearchController = null;
+    beginLocationChange();
+    publishLocation(null);
+    addressInput.value = "";
+    status.textContent = "";
   });
   buildButton.addEventListener("click", () => {
     if (!selectedStore || !planningLocation || searchInProgress) return;

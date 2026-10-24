@@ -97,6 +97,8 @@ class AccountStore:
             raise StoreError(f"{label} must be at least 10 characters.")
         if len(value) > 512:
             raise StoreError(f"{label} is too long.")
+        if not re.search(r"[A-Za-z]", value) or not re.search(r"[0-9]", value):
+            raise StoreError(f"{label} must include at least one letter and one number.")
         return value
 
     @staticmethod

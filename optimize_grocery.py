@@ -52,6 +52,15 @@ CATEGORY_REQUIREMENTS = {
     "Grains": ({"Grains"}, 2),
     "Protein sources": ({"Protein", "Beans and legumes"}, 2),
 }
+PROTEIN_FAMILY_PROFILES = {
+    "Legumes": {"black_beans", "chickpeas", "kidney_beans", "lentils", "pinto_beans"},
+    "Soy foods": {"tofu", "soy_beverage"},
+    "Nuts and seeds": {"peanuts", "peanut_butter", "sunflower_seeds"},
+    "Eggs": {"eggs"},
+    "Dairy": {"milk_2_percent", "plain_yogurt", "cheddar_cheese"},
+    "Seafood": SEAFOOD_PROFILES,
+    "Land-animal proteins": LAND_ANIMAL_PROFILES,
+}
 
 
 # 2. INPUT AND VALIDATION HELPERS
@@ -96,7 +105,7 @@ def collect_inputs() -> dict:
         "people": prompt_number("Number of people", 1, 20, True),
         "days": prompt_number("Number of days", 1, 31, True),
     }
-    print("\n--------------------------------------------------\nDIET PREFERENCE\n--------------------------------------------------\n  1. Omnivore\n     Includes meat, fish, eggs, and dairy\n\n  2. Vegetarian\n     Excludes meat and fish\n\n  3. Vegan\n     Excludes meat, fish, eggs, and dairy\n\n  4. Pescatarian\n     Includes fish but excludes other meat\n")
+    print("\n--------------------------------------------------\nDIET PREFERENCE\n--------------------------------------------------\n  1. Non-Vegetarian\n     Includes plant foods, meat, fish, eggs, and dairy\n\n  2. Vegetarian\n     Excludes meat and fish\n\n  3. Vegan\n     Excludes meat, fish, eggs, and dairy\n\n  4. Pescatarian\n     Includes fish but excludes other meat\n")
     values["diet"] = prompt_choice("Select a diet [1-4]", {
         "1": "omnivore", "2": "vegetarian", "3": "vegan", "4": "pescatarian",
         **{name: name for name in DIET_EXCLUSIONS},
@@ -175,6 +184,16 @@ def product_text(product: dict) -> str:
     fields = ("product_name", "brand", "food_name", "food_profile", "food_category")
     return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", " ".join(str(product.get(k) or "") for k in fields).lower())).strip()
 
+def product_food_groups(product: dict) -> set[str]:
+    """Map reviewed catalog semantics to optimizer groups without relabeling data."""
+    category = str(product.get("food_category") or "")
+    profile = str(product.get("food_profile") or "")
+    groups = {name for name, (categories, _required) in CATEGORY_REQUIREMENTS.items()
+              if category in categories}
+    groups.update(name for name, profiles in PROTEIN_FAMILY_PROFILES.items()
+                  if profile in profiles)
+    return groups
+
 def filter_catalog(
     catalog: list[dict],
     diet: str,
@@ -244,7 +263,9 @@ def build_model(products: list[dict], values: dict, excluded_ids: set[str] | Non
         model += pulp.lpSum(selected[i] for i in group) <= 1
     for group in category_groups.values():
         model += pulp.lpSum(selected[i] for i in group) <= 5
-    model += pulp.lpSum(selected.values()) <= min(15, max(10, people * 2 + 7))
+    # Leave room for useful food-group coverage while keeping basket size
+    # bounded. A positive per-product objective cost still discourages filler.
+    model += pulp.lpSum(selected.values()) <= min(15, max(14, people * 2 + 10))
     if excluded_ids:
         original = [i for i, product in enumerate(products) if str(product.get("product_id") or product.get("catalog_id")) in excluded_ids]
         if original:
@@ -279,16 +300,30 @@ def build_model(products: list[dict], values: dict, excluded_ids: set[str] | Non
             excesses[nutrient] = pulp.LpVariable(f"{nutrient}_excess", lowBound=0, cat=pulp.LpContinuous)
             model += totals[nutrient] - excesses[nutrient] <= maximum
 
-    requirements = dict(CATEGORY_REQUIREMENTS)
-    if values["diet"] != "vegan":
-        requirements["Eggs and dairy"] = ({"Eggs and dairy"}, 1)
     missing = {}
-    for name, (categories, required) in requirements.items():
-        group = [i for i, p in enumerate(products) if p.get("food_category") in categories]
+    for name, (_categories, required) in CATEGORY_REQUIREMENTS.items():
+        group = [i for i, product in enumerate(products) if name in product_food_groups(product)]
         if group:
             missing[name] = pulp.LpVariable("missing_" + re.sub(r"\W+", "_", name.lower()), 0, required, cat=pulp.LpInteger)
             model += pulp.lpSum(selected[i] for i in group) + missing[name] >= required
-    target_variety = min(12, max(10, people + 8))
+
+    family_present = {}
+    for name in PROTEIN_FAMILY_PROFILES:
+        group = [i for i, product in enumerate(products) if name in product_food_groups(product)]
+        if not group:
+            continue
+        family_present[name] = pulp.LpVariable("protein_family_" + re.sub(r"\W+", "_", name.lower()), 0, 1, cat=pulp.LpBinary)
+        model += family_present[name] <= pulp.lpSum(selected[i] for i in group)
+    # A fourth family is a soft option for diets with additional eligible
+    # choices. Because this is a penalty rather than a constraint, the solver
+    # may leave it unmet when cost or nutrition makes the extra family unhelpful.
+    protein_family_target = min(3 if values["diet"] == "vegan" else 4, len(family_present))
+    protein_family_shortfall = pulp.LpVariable(
+        "protein_family_shortfall", 0, protein_family_target, cat=pulp.LpInteger
+    )
+    model += pulp.lpSum(family_present.values()) + protein_family_shortfall >= protein_family_target
+
+    target_variety = min(13, max(11, people + 9))
     variety_shortfall = pulp.LpVariable("variety_shortfall", 0, target_variety, cat=pulp.LpInteger)
     model += pulp.lpSum(selected.values()) + variety_shortfall >= target_variety
 
@@ -298,7 +333,8 @@ def build_model(products: list[dict], values: dict, excluded_ids: set[str] | Non
     objective = [nutrition_scale * DEFICIENCY_WEIGHTS[n] * v / max(target_ranges[n][0], 1) for n, v in deficiencies.items()]
     objective += [nutrition_scale * EXCESS_WEIGHTS[n] * v / max(target_ranges[n][1], 1) for n, v in excesses.items()]
     objective += [category_scale * 35 * variable for variable in missing.values()]
-    objective += [category_scale * 20 * variety_shortfall, cost_scale * 3 * total_cost / max(values["budget"], 1), 0.10 * pulp.lpSum(selected.values())]
+    objective += [category_scale * 8 * protein_family_shortfall]
+    objective += [category_scale * 12 * variety_shortfall, cost_scale * 3 * total_cost / max(values["budget"], 1), 0.20 * pulp.lpSum(selected.values())]
     nutrition_focus = values.get("nutrition_focus", "none")
     if nutrition_focus in NUTRITION_FOCUS_NUTRIENTS:
         nutrient, weight = NUTRITION_FOCUS_NUTRIENTS[nutrition_focus]

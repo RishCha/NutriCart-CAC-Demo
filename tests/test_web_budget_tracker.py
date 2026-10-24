@@ -25,7 +25,7 @@ class ShoppingBudgetPageTests(unittest.TestCase):
 
     def test_dashboard_has_all_required_controls_and_outputs(self):
         required = (
-            "starting-budget", "budget-remaining", "budget-spent", "budget-status-copy",
+            "starting-budget", "budget-remaining", "budget-spent",
             "budget-progress-fill", "purchase-item", "purchase-store", "purchase-cost",
             "add-purchase", "purchase-log", "undo-purchase", "clear-purchases",
             "new-budget-session", "budget-live-status", "budget-store-context", "purchase-success",
@@ -36,7 +36,12 @@ class ShoppingBudgetPageTests(unittest.TestCase):
         self.assertIn('id="purchase-store-disclosure"', self.page)
         self.assertIn("+ Add store (optional)", self.page)
         self.assertIn("Record Purchase", self.page)
-        self.assertIn("budget_tracker.js?v=workflow-final-68", self.page)
+        self.assertIn("budget_tracker.js?v=account-signout-73", self.page)
+        self.assertNotIn('id="budget-percent"', self.page)
+        self.assertNotIn('id="budget-status-copy"', self.page)
+        self.assertIn('aria-label="Budget remaining"', self.page)
+        self.assertIn("View your shopping list</button>", self.page)
+        self.assertNotIn("View your shopping list &#8595;", self.page)
 
     def test_forms_have_real_validation_hooks(self):
         self.assertIn('id="purchase-item" type="text"', self.page)
@@ -112,8 +117,9 @@ class ShoppingBudgetPageTests(unittest.TestCase):
 
     def test_over_budget_and_zero_states_are_explicit(self):
         self.assertIn('remaining < 0 ? `${formatMoney(-remaining)} OVER BUDGET`', self.script)
-        self.assertIn('remaining === 0) statusCopy.textContent = "BUDGET FULLY USED"', self.script)
         self.assertIn('card.classList.toggle("is-over-budget", remaining < 0)', self.script)
+        self.assertIn('card.classList.toggle("is-fully-used", remaining === 0)', self.script)
+        self.assertIn('`${Math.round(percent)} percent remaining`', self.script)
         self.assertIn(".budget-balance-card.is-over-budget", self.styles)
 
     def test_planner_budget_is_one_way_session_initialization(self):
@@ -128,7 +134,7 @@ class ShoppingBudgetPageTests(unittest.TestCase):
         self.assertIn('id="planned-purchase-select"', self.page)
         self.assertIn('for="planned-purchase-select"', self.page)
         self.assertIn("plannedItems: currentResult?.groceries || []", self.grocery_script)
-        self.assertIn("plannedItems: currentResult.groceries || []", self.grocery_script)
+        self.assertIn("plannedItems: (currentResult?.groceries || []).map", self.grocery_script)
         self.assertIn("updatePlannedItems(event.detail?.plannedItems)", self.script)
         self.assertNotIn("Harris Teeter Chicken Breast", self.script)
         self.assertNotIn("Bananas — $1.70", self.script)
@@ -344,7 +350,7 @@ class ShoppingBudgetPageTests(unittest.TestCase):
         self.assertIn("let budgetReady = false", self.script)
         unset = self.script.split("if (!budgetReady)", 1)[1].split("animateMoney(remainingElement", 1)[0]
         self.assertIn('remainingElement.textContent = "Not set"', unset)
-        self.assertIn("Set a starting budget to track spending.", unset)
+        self.assertIn('progress.setAttribute("aria-valuetext", "Starting budget not set")', unset)
 
     def test_checklist_and_actual_spending_are_named_distinctly(self):
         self.assertIn("Your Shopping List", self.page)

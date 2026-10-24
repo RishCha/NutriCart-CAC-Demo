@@ -22,12 +22,45 @@
   let currentPlan = null;
   let currentMeal = null;
   let pendingSave = null;
-  let currentLibraryKind = "grocery_plan";
+  let currentLibraryKind = "plans";
+  const libraryCache = new Map();
+  let libraryRequestRevision = 0;
+  let libraryAbortController = null;
   let currentPlanSavedId = null;
   let savedAction = null;
   let authMode = "signin";
   let authRevision = 0;
   let authPending = false;
+  let transientAuthStatus = false;
+
+  function showGroceryPlanSaved(saved) {
+    const button = document.querySelector("#save-grocery-plan");
+    const indicator = document.querySelector("#grocery-plan-saved");
+    button.textContent = "Save Plan";
+    button.disabled = false;
+    button.hidden = saved || !accountsEnabled;
+    indicator.hidden = !saved;
+  }
+
+  function consumeAuthRedirectFragment() {
+    const fragment = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : "";
+    if (!fragment) return null;
+    const values = new URLSearchParams(fragment);
+    const isAuthRedirect = values.has("error") || values.has("error_code")
+      || values.has("access_token") || values.has("refresh_token");
+    if (!isAuthRedirect) return null;
+    history.replaceState(null, "", window.location.pathname + window.location.search);
+    const code = String(values.get("error_code") || "").toLowerCase();
+    if (code === "otp_expired") {
+      return {mode: "confirm", error: true, message: "This confirmation link is invalid or expired. Please request a new confirmation email."};
+    }
+    if (values.has("error")) {
+      return {mode: "confirm", error: true, message: "Email confirmation could not be completed. Please request a new confirmation email."};
+    }
+    return {mode: "signin", error: false, message: "Email confirmed. Sign in to continue."};
+  }
+
+  const authRedirect = consumeAuthRedirectFragment();
 
   async function api(path, options = {}) {
     const headers = {...(options.headers || {})};
@@ -39,14 +72,21 @@
     return data;
   }
 
-  function setStatus(message, error = false) {
+  function setStatus(message, error = false, options = {}) {
     status.textContent = message; status.classList.toggle("error", error);
+    transientAuthStatus = Boolean(message) && !error && options.transientAuth === true;
+  }
+  function clearTransientAuthStatus() {
+    if (transientAuthStatus) setStatus("");
+  }
+  function showConfirmationAssistance(email = "") {
+    document.querySelector("#resend-confirmation-mode").hidden = false;
+    if (email) document.querySelector("#resend-confirmation-email").value = email;
   }
 
   function renderUser() {
     authPanel.hidden = Boolean(user); userPanel.hidden = !user;
     accountButtonLabel.textContent = user ? (user.first_name || "Account") : "Sign In";
-    document.querySelector(".app-settings-utility").hidden = Boolean(user);
     accountButton.classList.toggle("is-signed-in", Boolean(user));
     accountButton.setAttribute("aria-haspopup", user ? "menu" : "dialog");
     let avatar = accountButton.querySelector(".account-avatar");
@@ -95,22 +135,26 @@
 
   function openAccount(mode = "signin") {
     closeAccountMenu();
+    dialog.scrollTop = 0;
     dialog.hidden = false; backdrop.hidden = false; document.body.classList.add("settings-open");
     if (!user && accountsEnabled) setAuthMode(mode);
     (accountsEnabled ? document.querySelector("#account-close") : document.querySelector("#continue-as-guest")).focus();
   }
-  function closeAccount() { authRevision += 1; dialog.hidden = true; backdrop.hidden = true; document.body.classList.remove("settings-open"); accountButton.focus(); }
+  function closeAccount() { authRevision += 1; clearTransientAuthStatus(); dialog.hidden = true; backdrop.hidden = true; document.body.classList.remove("settings-open"); accountButton.focus(); }
   function setAuthMode(mode) {
     if (!accountsEnabled) return;
     authMode = mode;
     authRevision += 1;
     setStatus("");
+    document.querySelector("#resend-confirmation-mode").hidden = true;
     const create = mode === "create";
     document.querySelector("#sign-in-form").hidden = mode !== "signin";
     document.querySelector("#create-account-form").hidden = !create;
     document.querySelector("#forgot-password-form").hidden = mode !== "forgot";
+    document.querySelector("#resend-confirmation-form").hidden = mode !== "confirm";
     document.querySelector("#sign-in-intro").hidden = mode !== "signin";
     document.querySelector("#create-account-intro").hidden = !create;
+    dialog.scrollTop = 0;
   }
 
   async function refreshSession() {
@@ -130,11 +174,29 @@
     try {
       submit.disabled = true; submit.textContent = path.endsWith("register") ? "Creating account..." : "Signing in...";
       const data = await api(path, {method: "POST", body: JSON.stringify(payload)});
-      user = data.user; renderUser();
-      if (revision === authRevision) setStatus(path.endsWith("register") ? `Welcome to NutriCart, ${user.first_name}. Your account is ready.` : "Signed in. Your current NutriCart work is still here.");
-      if (pendingSave) { closeAccount(); openSaveDialog(pendingSave); }
+      if (data.confirmation_required) {
+        user = null;
+        renderUser();
+        if (revision === authRevision) {
+          document.querySelector("#sign-in-email").value = payload.email || "";
+          document.querySelector("#resend-confirmation-email").value = payload.email || "";
+          setAuthMode("signin");
+          showConfirmationAssistance(payload.email);
+          setStatus("Check your email to confirm your account before signing in.");
+        }
+      } else {
+        user = data.user; renderUser();
+        if (revision === authRevision) {
+          if (path.endsWith("register")) setStatus("Welcome to NutriCart, " + user.first_name + ". Your account is ready.");
+          else setStatus("Signed in. Your saved content is available on this device.", false, {transientAuth: true});
+        }
+        if (pendingSave) { closeAccount(); openSaveDialog(pendingSave); }
+      }
     } catch (error) {
-      if (revision === authRevision) setStatus(error.status ? error.message : (path.endsWith("register") ? "The account could not be created. Please try again." : "Sign in failed. Please try again."), true);
+      if (revision === authRevision) {
+        if (!path.endsWith("register") && error.message === "Confirm your email before signing in.") showConfirmationAssistance(payload.email);
+        setStatus(error.status ? error.message : (path.endsWith("register") ? "The account could not be created. Please try again." : "Sign in failed. Please try again."), true);
+      }
     }
     finally {
       authPending = false; authSubmits.forEach(control => { control.disabled = false; });
@@ -146,6 +208,24 @@
     const context = plan.context || {}, result = plan.result || {};
     return {budget: context.budget, people: context.people, days: context.days, diet: context.diet,
       total: result.total_cost, score: result.quality_score};
+  }
+
+  function displayedDiet(value) {
+    return value === "omnivore" ? "Non-Vegetarian" : (value || "Not listed");
+  }
+
+  const forbiddenSavedKeys = new Set([
+    "latitude", "longitude", "coordinates", "address", "searched_address",
+    "snap_results", "retailers", "price_results", "comparison_results",
+    "access_token", "token", "credentials", "password", "password_hash",
+  ]);
+
+  function sanitizedSaveData(value) {
+    if (Array.isArray(value)) return value.map(sanitizedSaveData);
+    if (!value || typeof value !== "object") return value;
+    return Object.fromEntries(Object.entries(value)
+      .filter(([key]) => !forbiddenSavedKeys.has(key.toLowerCase()))
+      .map(([key, item]) => [key, sanitizedSaveData(item)]));
   }
 
   function openSaveDialog(save) {
@@ -172,8 +252,9 @@
     try {
       const name = document.querySelector("#save-item-name").value;
       confirm.disabled = true; confirm.textContent = "Saving...";
-      const {item} = await api("/api/saved-items", {method: "POST", body: JSON.stringify({kind: pendingSave.kind, name, data: pendingSave.data})});
-      if (pendingSave.kind === "grocery_plan") { currentPlanSavedId = item.id; const button = document.querySelector("#save-grocery-plan"); button.textContent = "✓ Saved"; button.disabled = true; }
+      const {item} = await api("/api/saved-items", {method: "POST", body: JSON.stringify({kind: pendingSave.kind, name, data: sanitizedSaveData(pendingSave.data)})});
+      libraryCache.delete(pendingSave.kind === "shopping_list" ? "shopping_list" : "plans");
+      if (pendingSave.kind === "grocery_plan") { currentPlanSavedId = item.id; showGroceryPlanSaved(true); }
       document.querySelector("#save-status").textContent = pendingSave.kind === "shopping_list" ? "✓ Shopping session saved" : pendingSave.kind === "meal_plan" ? "✓ Meal plan saved" : "✓ Plan saved";
       window.setTimeout(closeSaveDialog, 650);
     } catch (error) { document.querySelector("#save-status").textContent = `We couldn't save this right now. Your current work is still available. ${error.message}`; }
@@ -192,7 +273,7 @@
     const money = value => `$${Number(value || 0).toFixed(2)}`;
     const entries = item.kind === "shopping_list"
       ? [["Starting budget", money(values.startingBudget)], ["Spent", money(values.spent)], ["Remaining", money(values.remaining)], ["Purchases", values.purchaseCount ?? 0]]
-      : [["Budget", values.budget != null ? money(values.budget) : "—"], ["People", values.people ?? "—"], ["Days", values.days ?? "—"], ["Diet", values.diet || "—"], ["Saved total", values.total != null ? money(values.total) : "—"], ["Plan score", values.score != null ? Math.round(Number(values.score)) : "—"]];
+      : [["Budget", values.budget != null ? money(values.budget) : "—"], ["People", values.people ?? "—"], ["Days", values.days ?? "—"], ["Diet", displayedDiet(values.diet) || "—"], ["Saved total", values.total != null ? money(values.total) : "—"], ["Plan score", values.score != null ? Math.round(Number(values.score)) : "—"]];
     entries.forEach(([label, value]) => { const group = document.createElement("div"); const term = document.createElement("dt"); const detail = document.createElement("dd"); term.textContent = label; detail.textContent = value; group.append(term, detail); metrics.append(group); });
     const actions = document.createElement("div"); actions.className = "saved-item-actions";
     [[item.kind === "grocery_plan" ? "Open Plan" : item.kind === "meal_plan" ? "Open Meal Plan" : "Open Session", "open"], ["Rename", "rename"], ["Delete", "delete"]].forEach(([label, action]) => {
@@ -201,15 +282,79 @@
     article.append(headingWrap, metrics, actions); return article;
   }
 
-  async function loadLibrary(kind = "plans") {
+  function libraryState(message, error = false) {
+    const state = document.createElement("div");
+    state.className = `saved-library-state${error ? " error" : ""}`;
+    state.setAttribute("role", "status");
+    state.setAttribute("aria-live", "polite");
+    state.textContent = message;
+    return state;
+  }
+
+  function renderLibrary(kind, items) {
+    if (kind !== currentLibraryKind) return;
+    const output = document.querySelector("#saved-items");
+    output.removeAttribute("aria-busy");
+    output.replaceChildren(...items.map(itemCard));
+    if (!items.length) {
+      const empty = document.createElement("div"); empty.className = "saved-empty";
+      const title = document.createElement("strong"); const copy = document.createElement("p"); const action = document.createElement("button");
+      action.type = "button"; action.className = "secondary"; action.dataset.emptyView = kind === "shopping_list" ? "budget" : "planner";
+      title.textContent = kind === "shopping_list" ? "No saved shopping sessions yet." : "No saved plans yet.";
+      copy.textContent = kind === "shopping_list" ? "Track a shopping trip and save the session if you want to continue later." : "Build a Grocery Plan and save it here for later.";
+      action.textContent = kind === "shopping_list" ? "Open Shopping Budget" : "Create Grocery Plan";
+      empty.append(title, copy, action); output.append(empty);
+    }
+  }
+
+  async function loadLibrary(kind = "plans", {refresh = false} = {}) {
+    currentLibraryKind = kind;
+    const output = document.querySelector("#saved-items");
+    const cached = libraryCache.get(kind);
+    if (cached) renderLibrary(kind, cached.items);
+    if (cached && !refresh && Date.now() - cached.loadedAt < 30000) return;
+
+    const revision = ++libraryRequestRevision;
+    libraryAbortController?.abort();
+    libraryAbortController = new AbortController();
+    if (!cached) {
+      output.setAttribute("aria-busy", "true");
+      output.replaceChildren(libraryState(kind === "shopping_list" ? "Loading saved shopping sessions…" : "Loading saved plans…"));
+    }
     try {
-      currentLibraryKind = kind;
-      const data = await api(kind === "plans" ? "/api/saved-items" : `/api/saved-items?kind=${encodeURIComponent(kind)}`);
-      const output = document.querySelector("#saved-items");
+      const data = await api(kind === "plans" ? "/api/saved-items" : `/api/saved-items?kind=${encodeURIComponent(kind)}`, {signal: libraryAbortController.signal});
       const items = kind === "plans" ? data.items.filter(item => item.kind !== "shopping_list") : data.items;
-      output.replaceChildren(...items.map(itemCard));
-      if (!items.length) { const empty = document.createElement("div"); empty.className = "saved-empty"; const title = document.createElement("strong"); const copy = document.createElement("p"); const action = document.createElement("button"); action.type = "button"; action.className = "secondary"; action.dataset.emptyView = kind === "shopping_list" ? "budget" : "planner"; title.textContent = kind === "shopping_list" ? "No saved shopping sessions yet." : "No saved plans yet."; copy.textContent = kind === "shopping_list" ? "Track a shopping trip and save the session if you want to continue later." : "Build a Grocery Plan and save it here for later."; action.textContent = kind === "shopping_list" ? "Open Shopping Budget" : "Create Grocery Plan"; empty.append(title, copy, action); output.append(empty); }
-    } catch (error) { setStatus("We couldn't load your saved content. Try again.", true); }
+      if (revision !== libraryRequestRevision || kind !== currentLibraryKind) return;
+      libraryCache.set(kind, {items, loadedAt: Date.now()});
+      renderLibrary(kind, items);
+    } catch (error) {
+      if (error.name === "AbortError" || revision !== libraryRequestRevision || kind !== currentLibraryKind) return;
+      output.removeAttribute("aria-busy");
+      if (!cached) output.replaceChildren(libraryState("We couldn't load your saved content. Try again.", true));
+      setStatus("We couldn't load your saved content. Try again.", true);
+    }
+  }
+
+  function selectAccountSection(section, {refresh = false} = {}) {
+    clearTransientAuthStatus();
+    const settings = section === "settings";
+    const activeTab = document.querySelector(`[data-account-section="${section}"]`);
+    document.querySelectorAll("[data-account-section]").forEach(button => {
+      const selected = button.dataset.accountSection === section;
+      button.setAttribute("aria-selected", String(selected));
+      button.tabIndex = selected ? 0 : -1;
+    });
+    document.querySelector("#saved-library").hidden = settings;
+    document.querySelector("#account-settings-panel").hidden = !settings;
+    if (settings) {
+      libraryRequestRevision += 1;
+      libraryAbortController?.abort();
+      return;
+    }
+    const kind = section === "shopping" ? "shopping_list" : "plans";
+    document.querySelector("#saved-library").setAttribute("aria-labelledby", activeTab.id);
+    document.querySelector("#saved-library-title").textContent = kind === "shopping_list" ? "Your Saved Shopping Sessions" : "Your Saved Plans";
+    loadLibrary(kind, {refresh});
   }
 
   function closeSavedAction(restoreFocus = true) {
@@ -240,7 +385,8 @@
       else if (type === "delete") await api(`/api/saved-items/${item.id}`, {method: "DELETE"});
       else { await api("/api/account", {method: "DELETE", body: JSON.stringify({confirmation: "DELETE"})}); user = null; renderUser(); closeAccount(); }
       output.textContent = type === "rename" ? "Name updated." : type === "delete" ? "Saved item deleted." : "Account deleted.";
-      window.setTimeout(() => { closeSavedAction(false); if (type !== "account-delete") loadLibrary(currentLibraryKind); }, 350);
+      if (type !== "account-delete") libraryCache.delete(currentLibraryKind);
+      window.setTimeout(() => { closeSavedAction(false); if (type !== "account-delete") loadLibrary(currentLibraryKind, {refresh: true}); }, 350);
     } catch (error) { output.textContent = error.message; confirm.disabled = false; }
   }
 
@@ -255,10 +401,11 @@
           document.dispatchEvent(new CustomEvent("nutricart:restore-saved-meal-basket", {detail: restoration}));
           if (!restoration.restored) throw new Error(restoration.error || "This saved Meal Plan could not restore its associated grocery basket.");
         }
-        if (item.kind === "grocery_plan") { currentPlanSavedId = item.id; const save = document.querySelector("#save-grocery-plan"); save.textContent = "✓ Saved"; save.disabled = true; }
         if (item.kind === "meal_plan") document.querySelector("#save-meal-plan").textContent = "Save as New Meal Plan";
         if (item.kind === "shopping_list") document.querySelector("#save-shopping-list").textContent = "Save as New Session";
-        document.dispatchEvent(new CustomEvent(eventName, {detail: item})); closeAccount();
+        document.dispatchEvent(new CustomEvent(eventName, {detail: item}));
+        if (item.kind === "grocery_plan") { currentPlanSavedId = item.id; showGroceryPlanSaved(true); }
+        closeAccount();
       } else if (action === "rename") {
         openSavedAction("rename", {id, name: button.closest("article").querySelector("h4").textContent, kind: currentLibraryKind === "shopping_list" ? "shopping_list" : "grocery_plan"}, button);
       } else if (action === "delete") openSavedAction("delete", {id, name: button.closest("article").querySelector("h4").textContent, kind: currentLibraryKind === "shopping_list" ? "shopping_list" : "grocery_plan"}, button);
@@ -270,7 +417,7 @@
     const result = {...(detail.result || {}), groceries: detail.plannedItems || []};
     currentPlan = {context: detail.context || {}, result};
     currentPlanSavedId = null;
-    const save = document.querySelector("#save-grocery-plan"); save.textContent = "Save Plan"; save.disabled = false;
+    showGroceryPlanSaved(false);
   });
   document.addEventListener("nutricart:meal-rendered", event => { currentMeal = event.detail; document.querySelector("#save-meal-plan").textContent = "Save Meal Plan"; });
   document.addEventListener("nutricart:budget-state", event => {
@@ -288,7 +435,6 @@
     if (["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); items[(index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length].focus(); }
   });
   document.addEventListener("click", event => { if (!event.target.closest(".account-menu-wrap")) closeAccountMenu(); });
-  document.querySelector("#account-menu-app-settings").addEventListener("click", () => closeAccountMenu());
   document.querySelectorAll("[data-account-menu-section]").forEach(button => button.addEventListener("click", () => { const section = button.dataset.accountMenuSection; openAccount(); document.querySelector(`[data-account-section="${section}"]`).click(); }));
   document.querySelector("#account-close").addEventListener("click", closeAccount); backdrop.addEventListener("click", closeAccount);
   if (accountsEnabled) {
@@ -299,6 +445,11 @@
       setAuthMode("forgot"); document.querySelector("#forgot-password-email").focus();
     });
     document.querySelector("#forgot-back-to-sign-in").addEventListener("click", () => { setAuthMode("signin"); document.querySelector("#sign-in-email").focus(); });
+    document.querySelector("#resend-confirmation-mode").addEventListener("click", () => {
+      document.querySelector("#resend-confirmation-email").value = document.querySelector("#sign-in-email").value;
+      setAuthMode("confirm"); document.querySelector("#resend-confirmation-email").focus();
+    });
+    document.querySelector("#confirmation-back-to-sign-in").addEventListener("click", () => { setAuthMode("signin"); document.querySelector("#sign-in-email").focus(); });
     document.querySelector("#forgot-password-form").addEventListener("submit", async event => {
       event.preventDefault();
       const revision = ++authRevision;
@@ -313,10 +464,68 @@
     });
     document.querySelector("#sign-in-form").addEventListener("submit", event => { event.preventDefault(); authenticate("/api/account/login", {email: document.querySelector("#sign-in-email").value, password: document.querySelector("#sign-in-password").value}); });
     document.querySelector("#create-account-form").addEventListener("submit", event => { event.preventDefault(); authenticate("/api/account/register", {first_name: document.querySelector("#account-first-name").value, last_name: document.querySelector("#account-last-name").value, email: document.querySelector("#account-email").value, password: document.querySelector("#account-password").value, confirm_password: document.querySelector("#account-password-confirm").value}); });
+    document.querySelector("#resend-confirmation-form").addEventListener("submit", async event => {
+      event.preventDefault();
+      const revision = ++authRevision;
+      const submit = event.target.querySelector('[type="submit"]');
+      submit.disabled = true; setStatus("");
+      try {
+        const data = await api("/api/account/resend-confirmation", {method: "POST", body: JSON.stringify({email: document.querySelector("#resend-confirmation-email").value})});
+        if (revision === authRevision && authMode === "confirm") setStatus(data.message);
+      } catch (error) {
+        if (revision === authRevision) setStatus(error.status ? error.message : "The request could not be sent. Please try again.", true);
+      } finally { submit.disabled = false; }
+    });
   } else {
     document.querySelector("#continue-as-guest").addEventListener("click", closeAccount);
   }
-  async function signOut() { await api("/api/account/logout", {method: "POST"}); closeAccountMenu(); user = null; currentPlanSavedId = null; renderUser(); const save = document.querySelector("#save-grocery-plan"); save.textContent = "Save Plan"; save.disabled = false; setStatus("Signed out. Current on-screen work remains available."); }
+  function clearSignedInState() {
+    user = null;
+    currentPlan = null;
+    currentMeal = null;
+    currentPlanSavedId = null;
+    currentLibraryKind = "plans";
+    libraryRequestRevision += 1;
+    libraryAbortController?.abort();
+    libraryAbortController = null;
+    libraryCache.clear();
+    document.querySelector("#saved-items").replaceChildren();
+    document.querySelector("#saved-library").hidden = false;
+    document.querySelector("#saved-library").setAttribute("aria-labelledby", "account-plans-tab");
+    document.querySelector("#saved-library-title").textContent = "Your Saved Plans";
+    document.querySelector("#account-settings-panel").hidden = true;
+    document.querySelectorAll("[data-account-section]").forEach(button => {
+      const selected = button.dataset.accountSection === "plans";
+      button.setAttribute("aria-selected", String(selected));
+      button.tabIndex = selected ? 0 : -1;
+    });
+    ["#account-user-name", "#account-user-email", "#account-menu-name", "#account-menu-email"]
+      .forEach(selector => { document.querySelector(selector).textContent = ""; });
+    document.querySelector("#profile-form").reset();
+    document.querySelector("#password-form").reset();
+    document.querySelector("#save-meal-plan").textContent = "Save Meal Plan";
+    document.querySelector("#save-shopping-list").textContent = "Save Shopping Session";
+    closeSaveDialog();
+    closeSavedAction(false);
+    renderUser();
+    showGroceryPlanSaved(false);
+    setStatus("");
+  }
+
+  async function signOut() {
+    try {
+      await api("/api/account/logout", {method: "POST"});
+    } catch (error) {
+      closeAccountMenu();
+      openAccount();
+      setStatus("Sign out failed. Please try again.", true);
+      return;
+    }
+    closeAccountMenu();
+    closeAccount();
+    clearSignedInState();
+    document.dispatchEvent(new CustomEvent("nutricart:account-signed-out"));
+  }
   document.querySelector("#sign-out").addEventListener("click", signOut);
   document.querySelector("#account-menu-sign-out").addEventListener("click", signOut);
   document.querySelector("#save-grocery-plan").addEventListener("click", () => { if (currentPlan) openSaveDialog({kind: "grocery_plan", title: "Save Grocery Plan", defaultName: `${currentPlan.context.days || 7}-Day Grocery Plan`, data: {...currentPlan, summary: summaryForPlan(currentPlan)}}); });
@@ -329,14 +538,38 @@
   savedActionDialog.addEventListener("keydown", event => { if (event.key === "Escape") closeSavedAction(); });
   document.querySelector("#save-create-account").addEventListener("click", () => { saveDialog.hidden = true; saveBackdrop.hidden = true; openAccount("create"); });
   document.querySelector("#save-sign-in").addEventListener("click", () => { saveDialog.hidden = true; saveBackdrop.hidden = true; openAccount("signin"); });
-  document.querySelectorAll("[data-account-section]").forEach(button => button.addEventListener("click", () => { const settings = button.dataset.accountSection === "settings"; document.querySelector("#saved-library").hidden = settings; document.querySelector("#account-settings-panel").hidden = !settings; if (!settings) { document.querySelector("#saved-library-title").textContent = button.dataset.accountSection === "shopping" ? "Your Saved Shopping Sessions" : "Your Saved Plans"; loadLibrary(button.dataset.accountSection === "shopping" ? "shopping_list" : "plans"); } }));
+  const accountSectionButtons = [...document.querySelectorAll("[data-account-section]")];
+  accountSectionButtons.forEach(button => button.addEventListener("click", () => selectAccountSection(button.dataset.accountSection)));
+  document.querySelector(".account-nav").addEventListener("keydown", event => {
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const current = accountSectionButtons.indexOf(document.activeElement);
+    const next = event.key === "Home" ? 0 : event.key === "End" ? accountSectionButtons.length - 1
+      : (current + (["ArrowRight", "ArrowDown"].includes(event.key) ? 1 : -1) + accountSectionButtons.length) % accountSectionButtons.length;
+    accountSectionButtons[next].focus();
+    accountSectionButtons[next].click();
+  });
   document.querySelector("#saved-items").addEventListener("click", event => { const button = event.target.closest("[data-saved-action]"); if (button) handleSavedAction(button); });
   document.querySelector("#saved-items").addEventListener("click", event => { const button = event.target.closest("[data-empty-view]"); if (button) { closeAccount(); document.dispatchEvent(new CustomEvent("nutricart:navigate", {detail: {view: button.dataset.emptyView}})); } });
+  document.addEventListener("nutricart:navigate", clearTransientAuthStatus);
   document.querySelector("#profile-form").addEventListener("submit", async event => { event.preventDefault(); try { const data = await api("/api/account/profile", {method: "PATCH", body: JSON.stringify({first_name: document.querySelector("#profile-first-name").value, last_name: document.querySelector("#profile-last-name").value})}); user = data.user; renderUser(); setStatus("✓ Profile updated"); } catch (error) { setStatus(error.message, true); } });
   document.querySelector("#password-form").addEventListener("submit", async event => { event.preventDefault(); try { await api("/api/account/change-password", {method: "POST", body: JSON.stringify({current_password: document.querySelector("#current-password").value, new_password: document.querySelector("#new-password").value, confirm_password: document.querySelector("#confirm-new-password").value})}); event.target.reset(); setStatus("Password updated."); } catch (error) { setStatus(error.message, true); } });
-  document.querySelector("#delete-account").addEventListener("click", event => openSavedAction("account-delete", {name: "account", kind: "account"}, event.currentTarget));
-  dialog.addEventListener("keydown", event => { if (event.key === "Escape") closeAccount(); });
+  document.querySelector("#delete-account")?.addEventListener("click", event => openSavedAction("account-delete", {name: "account", kind: "account"}, event.currentTarget));
+  dialog.addEventListener("keydown", event => {
+    if (event.key === "Escape") { event.preventDefault(); closeAccount(); return; }
+    if (event.key !== "Tab") return;
+    const controls = [...dialog.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])')]
+      .filter(control => !control.closest("[hidden]") && control.getClientRects().length);
+    const first = controls[0], last = controls[controls.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  });
   refreshSession().then(() => {
+    if (authRedirect && accountsEnabled && !user) {
+      openAccount(authRedirect.mode);
+      setStatus(authRedirect.message, authRedirect.error);
+      return;
+    }
     const address = new URL(window.location.href);
     if (address.searchParams.get("signin") === "1") {
       address.searchParams.delete("signin"); history.replaceState(null, "", address.pathname + address.search + address.hash);

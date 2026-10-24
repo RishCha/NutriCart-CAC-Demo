@@ -31,6 +31,8 @@ README.md
 RELEASE_MANIFEST.txt
 requirements.txt
 snap_store_locator.py
+supabase_accounts.py
+supabase/schema.sql
 static/account.js
 static/app.js
 static/budget_tracker.js
@@ -50,6 +52,7 @@ templates/reset_password.html
 tests/test_demo_catalog.py
 tests/test_feedback.py
 tests/test_pescatarian_planning.py
+tests/test_supabase_accounts.py
 tests/test_vercel_demo.py
 tests/test_web_budget_tracker.py
 tests/test_web_meal_plan.py

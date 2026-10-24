@@ -1,7 +1,7 @@
 (() => {
   function strength(value) {
     if (!value) return "";
-    if (value.length < 10 || /^(.)\1+$/u.test(value)) return "Weak";
+    if (value.length < 10 || !/[A-Za-z]/.test(value) || !/[0-9]/.test(value) || /^(.)\1+$/u.test(value)) return "Weak";
     const variety = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^a-zA-Z0-9]/].filter(pattern => pattern.test(value)).length;
     return value.length >= 16 || (value.length >= 12 && variety >= 3) ? "Strong" : "Fair";
   }

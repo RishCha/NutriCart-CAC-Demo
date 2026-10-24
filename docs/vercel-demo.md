@@ -6,7 +6,7 @@ NutriCart is a Flask application. The root `app.py` exports `app`, and Vercel ru
 
 - Every public-release run uses `data/demo`; missing files fail without a private-data fallback.
 - The demo catalog contains generic USDA-based foods and synthetic prices.
-- Hosted account, cloud-save, and password-recovery operations are unavailable because Vercel does not provide durable local SQLite storage.
+- Guest mode never depends on account storage. Optional hosted accounts, password recovery, and cross-device saved content use Supabase when its URL and publishable/anon key are configured; missing configuration fails closed to guest mode.
 - Guest grocery planning, meal planning, SNAP retailer search, and shopping-budget tools remain available.
 - Example groceries are not linked to retailer inventory or observed retailer prices.
 
@@ -19,6 +19,22 @@ Set a stable `FLASK_SECRET_KEY` in encrypted Vercel environment settings. Secure
 Location features use public USDA, Census Geocoder, and optional OpenStreetMap/Nominatim endpoints. Browser geolocation requires user permission and HTTPS, or loopback during local development.
 
 The deployment manifest is recorded in `RELEASE_MANIFEST.txt`. The release was exported without private source-repository history or private catalog data.
+
+## Supabase Accounts and Saved Plans
+
+Accounts remain optional. To enable them, set SUPABASE_URL, SUPABASE_ANON_KEY, and NUTRICART_PUBLIC_URL in encrypted Vercel environment settings. SUPABASE_ANON_KEY is Supabase's publishable/anon key; do not configure or expose a service-role key. Missing or malformed configuration leaves the hosted app in guest mode.
+
+Create a Supabase Free Plan project, keep email/password Auth enabled, set the Site URL to the production NutriCart URL, and add the production and loopback /reset-password URLs to Auth redirect URLs. Run supabase/schema.sql once in the Supabase SQL Editor. That script creates nutricart_saved_items, revokes anonymous access, grants only authenticated CRUD, enables RLS, and applies owner-only SELECT, INSERT, UPDATE, and DELETE policies based on auth.uid().
+
+The Flask backend uses the publishable/anon key with each authenticated user's JWT, so Postgres RLS remains authoritative. Access and refresh tokens are stored in Secure, HTTP-only, SameSite=Lax cookies and are never returned to application JavaScript. Supabase Auth sends confirmation and password-reset email. NutriCart's legacy SMTP reset path is retired and is not imported by the Flask application.
+
+Before production use, verify in Supabase's SQL editor or two isolated test accounts that user A cannot select, update, or delete user B's row. Also review Auth rate limits, redirect URLs, email templates, and CAPTCHA. Supabase's built-in mail service is rate-limited and best-effort; configure an approved custom SMTP provider in Supabase for production-grade delivery.
+
+Official guidance:
+- https://supabase.com/docs/guides/auth/passwords
+- https://supabase.com/docs/guides/auth/sessions
+- https://supabase.com/docs/guides/database/postgres/row-level-security
+- https://supabase.com/docs/guides/api/securing-your-api
 
 ## Feedback Delivery
 

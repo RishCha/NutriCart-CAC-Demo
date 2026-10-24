@@ -12,4 +12,4 @@ The student made the final decisions about grocery-planning constraints, diet be
 
 The public demonstration catalog was assembled independently from USDA FoodData Central records. Nutrition values come from USDA source data; package examples and prices are explicitly synthetic. AI tools were not used to invent retailer availability, observed prices, nutrition values, or product eligibility.
 
-Account persistence is disabled in the hosted public demo. Private catalogs, credentials, environment files, and local databases are not part of this release.
+Account persistence is available only when the hosted demo is configured with Supabase; guest use remains available without it. Private catalogs, credentials, environment files, and local databases are not part of this release.

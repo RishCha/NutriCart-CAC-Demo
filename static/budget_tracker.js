@@ -118,7 +118,6 @@
     const spentElement = document.querySelector("#budget-spent");
     const card = document.querySelector("#budget-balance-card");
     const overMessage = document.querySelector("#budget-over-message");
-    const statusCopy = document.querySelector("#budget-status-copy");
     const progress = document.querySelector(".budget-progress");
     if (!budgetReady) {
       card.classList.add("is-unset");
@@ -131,8 +130,6 @@
       card.classList.remove("is-over-budget", "is-fully-used");
       overMessage.hidden = true;
       overMessage.textContent = "";
-      statusCopy.textContent = "Set a starting budget to track spending.";
-      document.querySelector("#budget-percent").textContent = "Not set";
       document.querySelector("#budget-progress-fill").style.width = "0%";
       progress.setAttribute("aria-valuenow", "0");
       progress.setAttribute("aria-valuetext", "Starting budget not set");
@@ -151,12 +148,7 @@
     card.classList.toggle("is-fully-used", remaining === 0);
     overMessage.hidden = remaining >= 0;
     overMessage.textContent = remaining < 0 ? `${formatMoney(-remaining)} OVER BUDGET` : "";
-    if (remaining < 0) statusCopy.textContent = `${formatMoney(-remaining)} over the ${formatMoney(startingCents)} budget`;
-    else if (remaining === 0) statusCopy.textContent = "BUDGET FULLY USED";
-    else statusCopy.textContent = `${formatMoney(remaining)} remaining of ${formatMoney(startingCents)}`;
-
     const percent = startingCents ? Math.max(0, Math.min(100, (remaining / startingCents) * 100)) : 0;
-    document.querySelector("#budget-percent").textContent = `${percent.toFixed(percent % 1 ? 1 : 0)}%`;
     document.querySelector("#budget-progress-fill").style.width = `${percent}%`;
     progress.setAttribute("aria-valuenow", String(Math.round(percent)));
     progress.setAttribute("aria-valuetext", remaining < 0 ? `${formatMoney(-remaining)} over budget` : `${Math.round(percent)} percent remaining`);
@@ -392,6 +384,31 @@
     restoredShoppingSession = false;
     renderStoreContext(event.detail?.context);
     updatePlannedItems(event.detail?.plannedItems);
+  });
+  document.addEventListener("nutricart:account-signed-out", () => {
+    clearPurchaseSuccess();
+    startingCents = 0;
+    purchases = [];
+    nextPurchaseId = 1;
+    sessionStarted = false;
+    plannedItems = [];
+    selectedPlannedItem = null;
+    displayedSpentCents = 0;
+    displayedRemainingCents = 0;
+    budgetReady = false;
+    editingPurchaseId = null;
+    shoppingItems = [];
+    shoppingPlanFingerprint = "";
+    ignoreNextBudgetPlanUpdate = false;
+    restoredShoppingSession = false;
+    hideCollected.checked = false;
+    purchaseForm.reset();
+    startingEditor.open = false;
+    renderStoreContext(null);
+    updatePlannedItems([]);
+    renderLog();
+    renderTotals();
+    liveStatus.textContent = "";
   });
   [document.querySelector("#create-grocery-plan"), document.querySelector("#shopping-list-create-plan")].forEach(button => button.addEventListener("click", () => {
     document.dispatchEvent(new CustomEvent("nutricart:navigate", {detail: {view: "planner"}}));

@@ -7,7 +7,7 @@ FOOD_GROUP_EXCLUSIONS = {
     "dairy": {"milk_2_percent", "plain_yogurt", "cheddar_cheese"},
     "eggs": {"eggs"},
     "seafood": {"canned_tuna", "salmon"},
-    "nuts": {"peanut_butter"},
+    "nuts": {"peanuts", "peanut_butter"},
     "gluten": {"pasta", "whole_wheat_bread"},
 }
 NUTRITION_FOCUS_NUTRIENTS = {

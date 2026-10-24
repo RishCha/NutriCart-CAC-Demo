@@ -2,6 +2,7 @@
 
 import json
 import math
+import re
 import socket
 import urllib.error
 import urllib.parse
@@ -123,6 +124,27 @@ def _normalized(value: object) -> str:
     return " ".join(str(value or "").casefold().split())
 
 
+def retailer_display_name(source_name: object) -> str:
+    """Return a readable label without changing the USDA source value."""
+    name = " ".join(str(source_name or "").split())
+    if not name or not any(character.isalpha() for character in name):
+        return "SNAP-authorized retailer"
+    # USDA names commonly append a store identifier, sometimes repeating it
+    # after a hash. Preserve the source separately and remove only terminal IDs.
+    identified = re.fullmatch(r"(.+?\S)\s+#\s*[A-Za-z0-9-]+(?:\s+[A-Za-z0-9-]+)*", name)
+    if identified and any(character.isalpha() for character in identified.group(1)):
+        name = identified.group(1).strip()
+    else:
+        numbered = re.fullmatch(r"(.+?\S)\s+\d{3,}", name)
+        if numbered and any(character.isalpha() for character in numbered.group(1)):
+            name = numbered.group(1).strip()
+    if name.islower() or name.isupper():
+        name = name.title()
+        for acronym in ("CVS", "IGA", "USA"):
+            name = re.sub(rf"\b{acronym.title()}\b", acronym, name)
+    return name
+
+
 def find_snap_retailers(
     latitude: float, longitude: float, radius_miles: float = 5.0
 ) -> list[dict]:
@@ -180,8 +202,10 @@ def find_snap_retailers(
             if identity in seen:
                 continue
             seen.add(identity)
+            source_name = attributes.get("Store_Name") or ""
             stores.append({
-                "record_id": record_id, "store_name": attributes.get("Store_Name") or "Unnamed retailer",
+                "record_id": record_id, "store_name": source_name,
+                "display_name": retailer_display_name(source_name),
                 "street_address": attributes.get("Store_Street_Address") or "",
                 "additional_address": attributes.get("Additonal_Address") or "",
                 "city": attributes.get("City") or "", "state": attributes.get("State") or "",
@@ -217,7 +241,7 @@ def display_snap_retailers(stores: list[dict]) -> str:
             state_zip = " ".join(filter(None, (str(store.get("state") or ""), str(store.get("zip_code") or ""))))
             if state_zip:
                 address_parts.append(state_zip)
-            print(f"{number}. {store.get('store_name') or 'Unnamed retailer'}")
+            print(f"{number}. {store.get('display_name') or retailer_display_name(store.get('store_name'))}")
             print(f"   Store type: {store.get('store_type') or 'Not listed'}")
             print(f"   Distance: {store.get('distance_miles', 0):.1f} miles")
             print(f"   Address: {', '.join(str(part) for part in address_parts if part)}")

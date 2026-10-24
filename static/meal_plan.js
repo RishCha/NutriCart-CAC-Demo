@@ -13,6 +13,7 @@
   let currentPlan = null;
   let hasRenderedPlan = false;
   let planVersion = 0;
+  let currentPlanRevision = -1;
   let activeRequest = null;
 
   function setStatus(message, isError = false, announceOnly = false) {
@@ -25,6 +26,12 @@
 
   function navigate(view) {
     document.dispatchEvent(new CustomEvent("nutricart:navigate", {detail: {view}}));
+  }
+
+  function displayedDiet(value) {
+    if (value === "omnivore") return "Non-Vegetarian";
+    const normalized = String(value || "").replaceAll("_", " ");
+    return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : "";
   }
 
   function node(tag, className, text) {
@@ -61,8 +68,8 @@
   }
 
   function renderMeal(meal) {
-    const article = node("article", "meal-card");
     const mealType = String(meal.meal_type || "meal");
+    const article = node("article", `meal-card meal-card--${mealType.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`);
     article.append(node("span", "meal-type", mealType.charAt(0).toUpperCase() + mealType.slice(1)), node("h4", "", meal.title));
     const products = meal.products || [];
     const details = node("details", "meal-product-details");
@@ -76,11 +83,18 @@
 
   function render(data) {
     const context = currentPlan?.context || {};
-    document.querySelector("#meal-source-summary").textContent = [
+    const dietLabel = displayedDiet(context.diet);
+    const planContext = [
       context.days ? `${context.days} ${context.days === 1 ? "day" : "days"}` : "",
       context.people ? `${context.people} ${context.people === 1 ? "person" : "people"}` : "",
-      context.diet ? String(context.diet).replaceAll("_", " ") : "",
+      dietLabel,
     ].filter(Boolean).join(" · ");
+    document.querySelector("#meal-plan-title").textContent = "Your Meal Plan";
+    const headerContext = document.querySelector("#meal-plan-context");
+    headerContext.textContent = planContext;
+    headerContext.hidden = !planContext;
+    document.querySelector(".meal-plan-subtitle").hidden = true;
+    document.querySelector("#meal-source-summary").textContent = planContext;
     daysOutput.replaceChildren();
     (data.days || []).forEach(day => {
       const article = node("article", "meal-day-card");
@@ -93,7 +107,7 @@
     basketNutritionOutput.replaceChildren();
     const basketNutrition = (data.days || []).find(day => day?.nutrition)?.nutrition || {};
     basketNutritionOutput.append(nutritionSummary(basketNutrition, context.targets || {}));
-    document.querySelector("#meal-rotation-note").textContent = data.repeats ? `Repeat this ${data.rotation_days}-day rotation for your ${data.days_requested}-day plan.` : "";
+    document.querySelector("#meal-rotation-note").textContent = data.repeats ? `A ${data.rotation_days}-day meal rotation for your ${data.days_requested}-day grocery plan.` : "";
     ready.hidden = true; results.hidden = false; hasRenderedPlan = true;
     document.dispatchEvent(new CustomEvent("nutricart:meal-rendered", {detail: {mealPlan: data, context: currentPlan?.context || {}}}));
   }
@@ -126,16 +140,52 @@
     }
   }
 
-  document.addEventListener("nutricart:plan-updated", event => {
+  function applyCurrentPlan(detail = {}) {
+    const revision = Number(detail.revision);
+    if (Number.isFinite(revision) && revision === currentPlanRevision) return;
     if (activeRequest) activeRequest.abort();
     activeRequest = null;
     planVersion += 1;
+    if (Number.isFinite(revision)) currentPlanRevision = revision;
     createButton.disabled = false;
     const changed = hasRenderedPlan;
-    currentPlan = {groceries: (event.detail?.plannedItems || []).map(item => ({...item})), context: {...(event.detail?.context || {})}};
+    currentPlan = {groceries: (detail.plannedItems || []).map(item => ({...item})), context: {...(detail.context || {})}};
     hasRenderedPlan = false; results.hidden = true; results.querySelectorAll(".meal-day-card").forEach(card => card.remove());
+    document.querySelector("#meal-plan-title").textContent = "Meal Plan";
+    document.querySelector("#meal-plan-context").hidden = true;
+    document.querySelector(".meal-plan-subtitle").hidden = false;
     empty.hidden = currentPlan.groceries.length > 0; ready.hidden = !currentPlan.groceries.length;
     setStatus(changed ? "Your grocery plan changed. Generate a new Meal Plan to match your current basket." : "");
+  }
+
+  document.addEventListener("nutricart:plan-updated", event => {
+    applyCurrentPlan(event.detail || {});
+  });
+  document.addEventListener("nutricart:account-signed-out", () => {
+    if (activeRequest) activeRequest.abort();
+    activeRequest = null;
+    planVersion += 1;
+    currentPlan = null;
+    currentPlanRevision = -1;
+    hasRenderedPlan = false;
+    results.hidden = true;
+    results.querySelectorAll(".meal-day-card").forEach(card => card.remove());
+    daysOutput.replaceChildren();
+    basketNutritionOutput.replaceChildren();
+    document.querySelector("#meal-plan-title").textContent = "Meal Plan";
+    document.querySelector("#meal-plan-context").textContent = "";
+    document.querySelector("#meal-plan-context").hidden = true;
+    document.querySelector(".meal-plan-subtitle").hidden = false;
+    document.querySelector("#meal-source-summary").textContent = "";
+    empty.hidden = false;
+    ready.hidden = true;
+    createButton.disabled = false;
+    setStatus("");
+  });
+  document.addEventListener("nutricart:navigate", event => {
+    if (event.detail?.view !== "meal") return;
+    const snapshot = window.NutriCartPlanState?.get();
+    if (snapshot) applyCurrentPlan(snapshot);
   });
   const lockedAction = document.querySelector("#create-plan-from-meals");
   lockedAction.addEventListener("click", () => navigate(lockedAction.dataset.workflowTarget || "planner"));
@@ -148,6 +198,11 @@
   });
   document.querySelector("#meal-back-to-budget").addEventListener("click", () => navigate("budget"));
   document.querySelector("#meal-back-to-plan").addEventListener("click", () => navigate("planner"));
+  document.querySelector("#meal-back-to-basket").addEventListener("click", () => navigate("planner"));
+  document.querySelector("#meal-plan-another").addEventListener("click", () => {
+    navigate("planner");
+    document.querySelector("#edit-plan").click();
+  });
   document.querySelector("#meal-find-snap").addEventListener("click", () => navigate("snap"));
   document.querySelector("#meal-compare-basket").addEventListener("click", () => { navigate("planner"); setTimeout(() => document.dispatchEvent(new Event("nutricart:open-comparison")), 420); });
   createButton.addEventListener("click", createMealPlan);

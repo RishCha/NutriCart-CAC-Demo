@@ -64,6 +64,7 @@
   let reviewedInputs = null;
   let currentResult = null;
   let currentPlan = null;
+  let currentPlanRevision = 0;
   let budgetSessionReady = false;
   let activeGeneration = null;
   let alternativeHistory = [];
@@ -88,6 +89,19 @@
   function hasCurrentBasket() {
     return Boolean(currentResult?.groceries?.length);
   }
+
+  function currentPlanDetail() {
+    return {
+      plannedItems: (currentResult?.groceries || []).map(item => ({...item})),
+      result: currentResult ? {...currentResult} : {},
+      context: currentPlan?.context ? {...currentPlan.context} : {},
+      revision: currentPlanRevision,
+    };
+  }
+
+  window.NutriCartPlanState = {
+    get: () => currentPlanDetail(),
+  };
 
   function setTabLock(tab, locked, lockedLabel, unlockedLabel) {
     tab.classList.toggle("is-workflow-locked", locked);
@@ -444,7 +458,7 @@
   }
 
   function labelFor(value) {
-    const labels = {omnivore: "Omnivore", vegetarian: "Vegetarian", vegan: "Vegan", pescatarian: "Pescatarian", balanced: "Balanced", budget: "Lowest Cost", nutrition: "Nutrition", variety: "Variety", none: "No Special Focus", lower_fat: "Lower Fat", high_protein: "High Protein", high_fiber: "High Fiber", lower_sodium: "Lower Sodium", dairy: "Dairy-Free", eggs: "Egg-Free", seafood: "No Seafood", nuts: "Nut-Free", gluten: "Gluten-Free"};
+    const labels = {omnivore: "Non-Vegetarian", vegetarian: "Vegetarian", vegan: "Vegan", pescatarian: "Pescatarian", balanced: "Balanced", budget: "Lowest Cost", nutrition: "Nutrition", variety: "Variety", none: "No Special Focus", lower_fat: "Lower Fat", high_protein: "High Protein", high_fiber: "High Fiber", lower_sodium: "Lower Sodium", dairy: "Dairy-Free", eggs: "Egg-Free", seafood: "No Seafood", nuts: "Nut-Free", gluten: "Gluten-Free"};
     return labels[value] || value;
   }
 
@@ -639,6 +653,15 @@
     const name = context?.selected_store?.name;
     return typeof name === "string" ? name.trim() : "";
   }
+  function normalizeSelectedStore(context) {
+    const store = context?.selected_store;
+    if (!store || typeof store !== "object") return context;
+    const sourceName = typeof store.source_name === "string" && store.source_name.trim()
+      ? store.source_name.trim()
+      : (typeof store.name === "string" ? store.name.trim() : "");
+    const name = window.NutriCartStore?.displayName?.({store_name: sourceName}) || "";
+    return {...context, selected_store: {...store, name, source_name: sourceName}};
+  }
   function renderResult(result, alternative = false, contextOverride = null) {
     stopGeneration();
     if (alternative && currentResult?.groceries?.length) {
@@ -648,24 +671,22 @@
     } else if (!alternative) {
       alternativeHistory = [];
     }
-    const context = {...(contextOverride || result.planning_context || reviewedInputs || {})};
+    let context = {...(contextOverride || result.planning_context || reviewedInputs || {})};
     if (!contextOverride) context.selected_store = reviewedInputs?.selected_store || null;
+    context = normalizeSelectedStore(context);
     const storeLabel = selectedStoreName(context);
     const budget = Number(context.budget);
     const total = Number(result.total_cost || 0);
     currentResult = {...result, remaining_budget: Number.isFinite(budget) ? Number((budget - total).toFixed(2)) : result.remaining_budget};
     currentPlan = {context, result: currentResult};
+    currentPlanRevision += 1;
     reviewedInputs = {...context};
-    document.dispatchEvent(new CustomEvent("nutricart:plan-updated", {detail: {
-      plannedItems: currentResult.groceries || [],
-      result: {...currentResult},
-      context: {...context, targets: currentResult.nutrition_targets || {}, dailyNutrition: currentResult.nutrition_per_person_per_day || {}},
-    }}));
+    currentPlan.context = {...context, targets: currentResult.nutrition_targets || {}, dailyNutrition: currentResult.nutrition_per_person_per_day || {}};
+    document.dispatchEvent(new CustomEvent("nutricart:plan-updated", {detail: currentPlanDetail()}));
     document.querySelector("#plan-results-title").textContent = "Your Grocery Basket";
     const successful = ["optimal", "feasible"].includes(String(result.solver_status || "").toLowerCase());
-    const difference = alternative ? Number(result.alternative_difference_count || 0) : 0;
     document.querySelector("#solver-status").textContent = successful
-      ? (alternative ? `This alternative is now your current plan. ${difference} grocery type${difference === 1 ? "" : "s"} changed.` : "")
+      ? (alternative ? "This alternative is now your current plan." : "")
       : "Plan generation needs attention.";
     document.querySelector("#total-cost").textContent = money(result.total_cost);
     document.querySelector("#receipt-budget").textContent = money(budget);
@@ -936,12 +957,13 @@
     const hadPlan = hasCurrentBasket();
     currentResult = null;
     currentPlan = null;
+    currentPlanRevision += 1;
     reviewedInputs = null;
     alternativeHistory = [];
     budgetSessionReady = false;
     resultsSection.hidden = true;
     reviewSection.hidden = true;
-    if (hadPlan) document.dispatchEvent(new CustomEvent("nutricart:plan-updated", {detail: {plannedItems: [], context: {}}}));
+    if (hadPlan) document.dispatchEvent(new CustomEvent("nutricart:plan-updated", {detail: currentPlanDetail()}));
     updateSnapPlanContext();
     updateWorkflowState();
   }
@@ -973,6 +995,25 @@
   document.addEventListener("nutricart:store-changed", () => {
     if (hasCurrentBasket()) invalidateCurrentPlanForLocation();
     else updateWorkflowState();
+  });
+  document.addEventListener("nutricart:account-signed-out", async () => {
+    stopGeneration();
+    currentResult = null;
+    currentPlan = null;
+    currentPlanRevision += 1;
+    reviewedInputs = null;
+    alternativeHistory = [];
+    budgetSessionReady = false;
+    resultsSection.hidden = true;
+    reviewSection.hidden = true;
+    form.hidden = true;
+    document.dispatchEvent(new CustomEvent("nutricart:plan-updated", {detail: currentPlanDetail()}));
+    updateSnapPlanContext();
+    updateWorkflowState();
+    while (viewTransitioning) await wait(20);
+    await switchView("home");
+    document.querySelector("#planner-title").focus({preventScroll: true});
+    document.querySelector("#home").scrollIntoView({behavior: "instant", block: "start"});
   });
   document.addEventListener("nutricart:plan-updated", updateWorkflowState);
   document.addEventListener("nutricart:open-saved-shopping", event => {

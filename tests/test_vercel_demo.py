@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 import app
 from build_vercel import ASSETS, build_assets
+from snap_store_locator import retailer_display_name
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,7 +24,7 @@ class VercelDemoTests(unittest.TestCase):
                                  SECRET_KEY="isolated-demo-test", SESSION_COOKIE_SECURE=False)
         self.config.start()
         self.addCleanup(self.config.stop)
-        self.store = patch.object(app, "_accounts", side_effect=AssertionError("Demo touched SQLite"))
+        self.store = patch.object(app, "_supabase_accounts", side_effect=AssertionError("Guest demo contacted Supabase"))
         self.store.start()
         self.addCleanup(self.store.stop)
         self.client = app.app.test_client()
@@ -72,16 +73,37 @@ class VercelDemoTests(unittest.TestCase):
         page = self.client.get("/").text
         template = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
         styles = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
-        self.assertEqual(page.count('class="settings-icon"'), 2)
-        self.assertEqual(page.count('class="settings-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"'), 2)
-        self.assertEqual(page.count('stroke="currentColor"'), 2)
+        self.assertEqual(page.count('class="settings-icon"'), 1)
+        self.assertEqual(page.count('class="settings-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"'), 1)
+        self.assertEqual(page.count('stroke="currentColor"'), 1)
         self.assertIn('id="settings-button"', page)
         self.assertIn('aria-label="Settings" title="Settings"', page)
-        self.assertIn('id="account-menu-app-settings"', page)
+        self.assertNotIn('id="account-menu-app-settings"', page)
         self.assertNotIn("\u2699", template)
         self.assertIn(".settings-icon { display: block; flex: 0 0 20px; width: 20px; height: 20px; }", styles)
-        self.assertIn("#account-menu-app-settings { display: flex; align-items: center; gap: 8px; }", styles)
-        self.assertIn("styles.css?v=workflow-final-68", page)
+        self.assertIn('<div class="app-settings-utility">', page)
+        self.assertNotIn('document.querySelector(".app-settings-utility").hidden', (ROOT / "static" / "account.js").read_text(encoding="utf-8"))
+        self.assertIn("styles.css?v=saved-cards-74b", page)
+
+    def test_shared_brand_logo_is_transparent_line_art(self):
+        logo = (ROOT / "templates" / "nutricart-logo.svg").read_text(encoding="utf-8").strip()
+        page = self.client.get("/").text
+        reset = self.client.get("/reset-password").text
+        self.assertIn('viewBox="0 0 64 64"', logo)
+        self.assertIn('fill="none"', logo)
+        self.assertIn('stroke="#194f38"', logo)
+        self.assertIn('id="basket-symbol"', logo)
+        self.assertIn('class="basket-handle"', logo)
+        self.assertIn('class="basket-rim"', logo)
+        self.assertIn('class="basket-body"', logo)
+        self.assertIn('class="basket-slats"', logo)
+        self.assertNotIn('M32 24C25 18', logo)
+        self.assertNotIn('m15 27 8-14', logo)
+        self.assertNotIn('fill="#194f38"', logo)
+        self.assertNotIn("<rect", logo)
+        self.assertEqual(page.count(logo), 2)
+        self.assertIn(logo, reset)
+        self.assertIn("templates/nutricart-logo.svg", (ROOT / "RELEASE_MANIFEST.txt").read_text(encoding="utf-8"))
     def test_planner_uses_friendly_people_and_days_validation(self):
         script = (ROOT / "static" / "grocery.js").read_text(encoding="utf-8")
         page = self.client.get("/").text
@@ -90,8 +112,44 @@ class VercelDemoTests(unittest.TestCase):
         self.assertIn("NutriCart supports plans for 1–31 days.", script)
         self.assertNotIn("People must be a whole number from 1 to 20.", script)
         self.assertNotIn("Days must be a whole number from 1 to 31.", script)
-        self.assertIn('filename=\'grocery.js\', v=\'workflow-final-68\'', (ROOT / "templates" / "index.html").read_text(encoding="utf-8"))
-        self.assertIn("grocery.js?v=workflow-final-68", page)
+        self.assertIn('filename=\'grocery.js\', v=\'account-home-74c\'', (ROOT / "templates" / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("grocery.js?v=account-home-74c", page)
+
+    def test_omnivore_value_is_displayed_as_non_vegetarian_everywhere(self):
+        page = self.client.get("/").text
+        grocery = (ROOT / "static" / "grocery.js").read_text(encoding="utf-8")
+        meal = (ROOT / "static" / "meal_plan.js").read_text(encoding="utf-8")
+        account = (ROOT / "static" / "account.js").read_text(encoding="utf-8")
+        cli = (ROOT / "optimize_grocery.py").read_text(encoding="utf-8")
+        self.assertIn('name="diet" value="omnivore" required> Non-Vegetarian', page)
+        self.assertNotIn('required> Omnivore', page)
+        for source in (grocery, meal, account):
+            self.assertIn('omnivore', source)
+            self.assertIn('Non-Vegetarian', source)
+        self.assertIn('1. Non-Vegetarian', cli)
+        self.assertIn('"1": "omnivore"', cli)
+
+    def test_successful_signout_clears_private_ui_state_and_failed_signout_does_not_navigate(self):
+        account = (ROOT / "static" / "account.js").read_text(encoding="utf-8")
+        store = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+        grocery = (ROOT / "static" / "grocery.js").read_text(encoding="utf-8")
+        meal = (ROOT / "static" / "meal_plan.js").read_text(encoding="utf-8")
+        budget = (ROOT / "static" / "budget_tracker.js").read_text(encoding="utf-8")
+        success = account.split('async function signOut()', 1)[1].split('document.querySelector("#sign-out")', 1)[0]
+        self.assertLess(success.index('await api("/api/account/logout"'), success.index('clearSignedInState()'))
+        self.assertLess(success.index('clearSignedInState()'), success.index('nutricart:account-signed-out'))
+        failure = success.split('catch (error)', 1)[1].split('return;', 1)[0]
+        self.assertIn('Sign out failed. Please try again.', failure)
+        self.assertNotIn('nutricart:account-signed-out', failure)
+        self.assertIn('document.querySelector("#saved-items").replaceChildren()', account)
+        self.assertIn('currentPlan = null', account)
+        self.assertIn('currentMeal = null', account)
+        for source in (store, grocery, meal, budget):
+            self.assertIn('addEventListener("nutricart:account-signed-out"', source)
+        self.assertIn('publishLocation(null)', store)
+        self.assertIn('await switchView("home")', grocery)
+        self.assertIn('purchases = []', budget)
+        self.assertIn('currentPlan = null', meal)
 
     def test_planner_required_fields_have_inline_accessible_validation(self):
         script = (ROOT / "static" / "grocery.js").read_text(encoding="utf-8")
@@ -116,6 +174,8 @@ class VercelDemoTests(unittest.TestCase):
         script = (ROOT / "static" / "grocery.js").read_text(encoding="utf-8")
         self.assertIn("function selectedStoreName(context)", script)
         self.assertIn("context?.selected_store?.name", script)
+        self.assertIn("function normalizeSelectedStore(context)", script)
+        self.assertIn("window.NutriCartStore?.displayName", script)
         render = script.split("function renderResult", 1)[1].split("function formatPlanForCopy", 1)[0]
         self.assertIn("storeLabel", render)
         self.assertIn("[storeLabel,", render)
@@ -125,6 +185,63 @@ class VercelDemoTests(unittest.TestCase):
         page = self.client.get("/").text
         self.assertIn("Basket items are planning suggestions. Prices and product availability vary by retailer and location.", page)
         self.assertNotIn("Prices are recently observed retailer prices", page)
+
+    def test_snap_retailer_display_names_are_readable_without_changing_source_names(self):
+        self.assertEqual(retailer_display_name("2701868.0 1868"), "SNAP-authorized retailer")
+        self.assertEqual(retailer_display_name("  7-Eleven   #249238A "), "7-Eleven")
+        self.assertEqual(retailer_display_name("7-eleven #41347a 41347A"), "7-Eleven")
+        self.assertEqual(retailer_display_name("Circle K 1490"), "Circle K")
+        self.assertEqual(retailer_display_name("99 Ranch Market"), "99 Ranch Market")
+        self.assertEqual(retailer_display_name("Community Foods #A-17"), "Community Foods")
+        self.assertEqual(retailer_display_name("Market 12"), "Market 12")
+
+    def test_snap_api_keeps_duplicate_chain_locations_and_raw_source_names(self):
+        stores = [
+            {"record_id": "one", "store_name": "7-Eleven #100A", "display_name": "7-Eleven",
+             "street_address": "1 First Street", "city": "Concord", "state": "NC", "distance_miles": 1.0},
+            {"record_id": "two", "store_name": "7-Eleven #200B", "display_name": "7-Eleven",
+             "street_address": "2 Second Street", "city": "Concord", "state": "NC", "distance_miles": 2.0},
+        ]
+        with patch.object(app, "find_snap_retailers", return_value=stores):
+            response = self.client.post("/api/snap-retailers", json={"latitude": 35, "longitude": -80, "radius_miles": 5})
+        self.assertEqual(response.status_code, 200)
+        retailers = response.get_json()["retailers"]
+        self.assertEqual(len(retailers), 2)
+        self.assertEqual([item["display_name"] for item in retailers], ["7-Eleven", "7-Eleven"])
+        self.assertEqual([item["store_name"] for item in retailers], ["7-Eleven #100A", "7-Eleven #200B"])
+        self.assertEqual([item["record_id"] for item in retailers], ["one", "two"])
+        self.assertNotEqual(retailers[0]["street_address"], retailers[1]["street_address"])
+
+    def test_basket_actions_have_separate_save_state_and_responsive_toolbar(self):
+        page = self.client.get("/").text
+        account = (ROOT / "static" / "account.js").read_text(encoding="utf-8")
+        styles = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
+        self.assertIn('id="grocery-plan-saved" class="saved-plan-indicator" hidden', page)
+        self.assertIn('role="group" aria-label="Grocery basket actions"', page)
+        self.assertLess(page.index('id="copy-grocery-plan"'), page.index('id="edit-plan"'))
+        self.assertLess(page.index('id="edit-plan"'), page.index('id="alternative-plan"'))
+        self.assertIn("function showGroceryPlanSaved(saved)", account)
+        self.assertIn("button.hidden = saved || !accountsEnabled", account)
+        self.assertIn("indicator.hidden = !saved", account)
+        self.assertIn(".basket-action-area", styles)
+        self.assertIn(".result-utilities #alternative-plan", styles)
+
+    def test_meal_plan_generated_hierarchy_and_completion_actions(self):
+        page = self.client.get("/").text
+        script = (ROOT / "static" / "meal_plan.js").read_text(encoding="utf-8")
+        styles = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
+        for text in (
+            "Your Meal Plan", "Daily Meals", "Your plan is ready!",
+            "You've found a store, planned groceries, organized your shopping budget, and explored meal ideas.",
+            "Plan Another Grocery Trip", "Back to Grocery Basket",
+        ):
+            self.assertIn(text, page + script)
+        self.assertIn("A ${data.rotation_days}-day meal rotation for your ${data.days_requested}-day grocery plan.", script)
+        self.assertIn('document.querySelector("#edit-plan").click()', script)
+        self.assertIn('navigate("planner")', script)
+        self.assertIn("meal-card--${mealType", script)
+        self.assertIn(".meal-product-details summary:focus-visible", styles)
+        self.assertIn(".meal-completion-actions", styles)
 
     def test_runtime_recipe_enhancement_is_not_shipped(self):
         page = self.client.get("/").text
@@ -148,7 +265,7 @@ class VercelDemoTests(unittest.TestCase):
         self.assertIn("width: min(100%, 800px)", styles)
         self.assertIn("#meal-plan-ready .primary", styles)
         self.assertNotIn("min-height: 330px", styles.split("/* Compact unlocked Meal Plan action state. */", 1)[1])
-        self.assertIn("styles.css?v=workflow-final-68", page)
+        self.assertIn("styles.css?v=saved-cards-74b", page)
 
     def test_feedback_modal_has_optional_two_stage_actions(self):
         page = self.client.get("/").text
@@ -229,12 +346,16 @@ class VercelDemoTests(unittest.TestCase):
         self.assertIn('addEventListener("nutricart:store-changed", () => {', grocery)
         self.assertIn("if (hasCurrentBasket()) invalidateCurrentPlanForLocation();", grocery)
         self.assertIn('addEventListener("nutricart:plan-updated", updateWorkflowState)', grocery)
+        self.assertIn("window.NutriCartPlanState", grocery)
+        self.assertIn('event.detail?.view !== "meal"', meal)
+        self.assertIn("window.NutriCartPlanState?.get()", meal)
+        self.assertIn("revision === currentPlanRevision", meal)
         self.assertIn("invalidateCurrentPlanForLocation()", grocery)
         self.assertIn('dispatchEvent(new CustomEvent("nutricart:store-changed"', store_finder)
         self.assertIn('lockedAction.dataset.workflowTarget || "planner"', meal)
 
     def test_account_enabled_mode_preserves_authentication_forms(self):
-        with patch.dict(app.app.config, ACCOUNTS_ENABLED=True):
+        with patch.dict(app.app.config, ACCOUNTS_ENABLED=True, SUPABASE_URL="https://project.supabase.co", SUPABASE_ANON_KEY="publishable-test-key"):
             page = self.client.get("/").text
         self.assertIn('data-accounts-enabled="true"', page)
         self.assertIn('id="sign-in-form"', page)
@@ -303,10 +424,8 @@ class VercelDemoTests(unittest.TestCase):
                 response.close()
             self.assertFalse((root / "public" / "static" / "private.txt").exists())
 
-    def test_local_storage_failure_does_not_break_guest_home(self):
-        with patch.dict(app.app.config, ACCOUNTS_ENABLED=True), patch.object(app, "_accounts", side_effect=sqlite3.OperationalError("unavailable")):
-            with self.client.session_transaction() as session:
-                session["user_id"] = 1
+    def test_supabase_failure_does_not_break_guest_home(self):
+        with patch.dict(app.app.config, ACCOUNTS_ENABLED=True, SUPABASE_URL="https://project.supabase.co", SUPABASE_ANON_KEY="publishable-test-key"), patch.object(app, "_supabase_accounts", side_effect=RuntimeError("unavailable")):
             self.assertEqual(self.client.get("/").status_code, 200)
             self.assertFalse(self.client.get("/api/account/session").json["authenticated"])
 
@@ -316,7 +435,7 @@ class VercelDemoTests(unittest.TestCase):
         env.update(VERCEL="1", PYTHON_DOTENV_DISABLED="1", FLASK_SKIP_DOTENV="1")
         code = """
 import app
-import account_store, password_recovery, classify_catalog, planning_catalog, planning_preferences
+import account_store, password_recovery, supabase_accounts, classify_catalog, planning_catalog, planning_preferences
 import plan_feasibility, meal_planner, package_units, nutrition_references
 import optimize_grocery, price_comparison, basket_comparison, snap_store_locator
 assert not app.app.config['ACCOUNTS_ENABLED']
@@ -331,15 +450,15 @@ print('DEMO_STARTUP_OK')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("DEMO_STARTUP_OK", result.stdout)
 
-    def test_non_vercel_runtime_keeps_accounts_enabled(self):
+    def test_accounts_require_supabase_in_every_runtime(self):
         env = {key: os.environ[key] for key in ("SYSTEMROOT", "WINDIR", "PATH", "TEMP", "TMP") if key in os.environ}
         env.update(PYTHON_DOTENV_DISABLED="1", FLASK_SKIP_DOTENV="1")
         result = subprocess.run(
-            [sys.executable, "-B", "-c", "import app; assert app.app.config['ACCOUNTS_ENABLED']; print('LOCAL_ACCOUNTS_OK')"],
+            [sys.executable, "-B", "-c", "import app; assert not app.app.config['ACCOUNTS_ENABLED']; print('GUEST_MODE_OK')"],
             cwd=ROOT,
             env=env,
             capture_output=True,
             text=True,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("LOCAL_ACCOUNTS_OK", result.stdout)
+        self.assertIn("GUEST_MODE_OK", result.stdout)

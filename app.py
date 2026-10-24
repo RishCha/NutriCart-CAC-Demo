@@ -4,19 +4,17 @@ from datetime import datetime, timezone
 import math
 import os
 import secrets
-import sqlite3
 import time
 from functools import wraps
-from pathlib import Path
 from urllib.parse import urlsplit
 
 import requests
-from flask import Flask, jsonify, render_template, request, session
+from flask import Flask, g, jsonify, render_template, request, session
 from flask.sessions import SecureCookieSessionInterface
 
 from basket_comparison import compare_kroger_basket_prices
-from account_store import AccountStore, StoreError
-from password_recovery import queue_reset
+from account_store import StoreError
+from supabase_accounts import SupabaseAccounts, SupabaseError, configuration_valid
 from feedback_delivery import FeedbackDeliveryError, delivery_available as feedback_available, send_feedback
 from meal_planner import build_meal_plan
 from nutrition_references import estimate_household
@@ -52,28 +50,26 @@ class _NutriCartSessionInterface(SecureCookieSessionInterface):
         return secure
 
 
+_SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+_SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
+
 app = Flask(__name__)
 app.config.update(
-    # Vercel has no durable local SQLite storage. Keep only that public demo guest-only.
-    ACCOUNTS_ENABLED=os.getenv("VERCEL") != "1",
+    # Supabase enables durable accounts on Vercel. Missing configuration fails closed there.
+    SUPABASE_URL=_SUPABASE_URL,
+    SUPABASE_ANON_KEY=_SUPABASE_ANON_KEY,
+    SUPABASE_TIMEOUT_SECONDS=os.getenv("SUPABASE_TIMEOUT_SECONDS", "8"),
+    ACCOUNTS_ENABLED=configuration_valid(_SUPABASE_URL, _SUPABASE_ANON_KEY),
     SECRET_KEY=os.getenv("FLASK_SECRET_KEY") or secrets.token_hex(32),
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=os.getenv("FLASK_COOKIE_SECURE", "true" if os.getenv("VERCEL") == "1" else "").lower() in {"1", "true", "yes"},
-    ACCOUNT_DATABASE=os.getenv("NUTRICART_DATABASE") or str(Path(app.instance_path) / "nutricart.db"),
     PASSWORD_RESET_ORIGIN=os.getenv("NUTRICART_PUBLIC_URL", ""),
     # Fail closed unless an operator explicitly enables feedback in the deployment.
     FEEDBACK_ENABLED=os.getenv("NUTRICART_FEEDBACK_ENABLED", "").lower() in {"1", "true", "yes"},
     FEEDBACK_TO=os.getenv("NUTRICART_FEEDBACK_TO", ""),
     FEEDBACK_FROM=os.getenv("NUTRICART_FEEDBACK_FROM", ""),
     RESEND_API_KEY=os.getenv("RESEND_API_KEY", ""),
-    # SMTP remains available for local password recovery, not feedback delivery.
-    SMTP_HOST=os.getenv("NUTRICART_SMTP_HOST", ""),
-    SMTP_PORT=os.getenv("NUTRICART_SMTP_PORT", "587"),
-    SMTP_FROM=os.getenv("NUTRICART_SMTP_FROM", ""),
-    SMTP_USERNAME=os.getenv("NUTRICART_SMTP_USERNAME", ""),
-    SMTP_PASSWORD=os.getenv("NUTRICART_SMTP_PASSWORD", ""),
-    SMTP_SSL=os.getenv("NUTRICART_SMTP_SSL", "").lower() in {"1", "true", "yes"},
 )
 app.session_interface = _NutriCartSessionInterface()
 
@@ -83,6 +79,7 @@ def inject_template_globals():
     return {
         "current_year": datetime.now(timezone.utc).year,
         "accounts_enabled": app.config["ACCOUNTS_ENABLED"],
+        "account_backend": "supabase" if _using_supabase() else "local",
         "vercel_analytics_enabled": os.getenv("VERCEL") == "1"
         and (urlsplit(request.host_url).hostname or "").lower() not in {"localhost", "127.0.0.1", "::1"},
     }
@@ -99,21 +96,56 @@ KROGER_TOKEN_URL = "https://api.kroger.com/v1/connect/oauth2/token"
 _LOGIN_ATTEMPTS = {}
 
 
-def _accounts():
-    return AccountStore(app.config["ACCOUNT_DATABASE"])
+def _using_supabase():
+    return configuration_valid(app.config.get("SUPABASE_URL"), app.config.get("SUPABASE_ANON_KEY"))
+
+
+def _supabase_accounts():
+    return SupabaseAccounts(
+        app.config.get("SUPABASE_URL"),
+        app.config.get("SUPABASE_ANON_KEY"),
+        app.config.get("PASSWORD_RESET_ORIGIN"),
+        app.config.get("SUPABASE_TIMEOUT_SECONDS", 8),
+    )
+
+
+def _queue_supabase_tokens(tokens=None, clear=False):
+    g.supabase_tokens = tokens
+    g.clear_supabase_tokens = clear
 
 
 def _current_account_user():
+    if hasattr(g, "account_user"):
+        return g.account_user
     user = None
-    if app.config["ACCOUNTS_ENABLED"] and session.get("user_id"):
-        try:
-            user = _accounts().get_session_user(session.get("user_id"), session.get("auth_version", 0))
-        except (sqlite3.Error, OSError):
-            # A stale account cookie must not prevent access to the guest tools.
-            user = None
-    if not user:
-        session.pop("user_id", None)
-        session.pop("auth_version", None)
+    if app.config["ACCOUNTS_ENABLED"] and _using_supabase():
+        access_token = request.cookies.get("nutricart_access", "")
+        refresh_token = request.cookies.get("nutricart_refresh", "")
+        invalid_session = False
+        if access_token:
+            try:
+                user = _supabase_accounts().get_user(access_token)
+            except SupabaseError as error:
+                invalid_session = error.status in {401, 403}
+            except Exception:
+                user = None
+        if not user and refresh_token:
+            try:
+                refreshed = _supabase_accounts().refresh(refresh_token)
+                user = refreshed["user"]
+                access_token = refreshed["tokens"]["access_token"]
+                _queue_supabase_tokens(refreshed["tokens"])
+            except SupabaseError as error:
+                invalid_session = invalid_session or error.status in {401, 403}
+            except Exception:
+                user = None
+        if user:
+            g.account_access_token = access_token
+        elif invalid_session:
+            _queue_supabase_tokens(clear=True)
+    session.pop("user_id", None)
+    session.pop("auth_version", None)
+    g.account_user = user
     return user
 
 
@@ -211,15 +243,6 @@ def _login_required(function):
         return function(*args, **kwargs)
     return guarded
 
-
-def _item_id(value):
-    try:
-        identifier = int(value)
-    except (TypeError, ValueError) as error:
-        raise StoreError("Saved item ID is invalid.") from error
-    if identifier <= 0:
-        raise StoreError("Saved item ID is invalid.")
-    return identifier
 
 
 class _PlanningValidationError(ValueError):
@@ -663,13 +686,16 @@ def account_register():
         payload = _json_object()
         if payload.get("password") != payload.get("confirm_password"):
             raise StoreError("Passwords do not match.")
-        user = _accounts().create_user(payload.get("email"), payload.get("password"), payload.get("first_name"), payload.get("last_name", ""))
-        session["user_id"] = user["id"]
-        session["auth_version"] = 0
-        session.permanent = True
-        return jsonify({"user": user}), 201
+        result = _supabase_accounts().signup(payload.get("email"), payload.get("password"), payload.get("first_name"), payload.get("last_name", ""))
+        if result.get("tokens"):
+            _queue_supabase_tokens(result["tokens"])
+        return jsonify({"user": result.get("user") if result.get("tokens") else None, "confirmation_required": result["confirmation_required"]}), 201
+    except SupabaseError as error:
+        if error.provider_code in {"user_already_exists", "email_exists"}:
+            return jsonify({"user": None, "confirmation_required": True}), 201
+        return jsonify({"error": str(error)}), error.status
     except (ValueError, StoreError) as error:
-        return jsonify({"error": str(error)}), 400
+        return jsonify({"error": str(error)}), getattr(error, "status", 400)
     except Exception:
         return jsonify({"error": "The account could not be created. Please try again."}), 500
 
@@ -685,20 +711,35 @@ def account_login():
     attempts = [stamp for stamp in _LOGIN_ATTEMPTS.get(key, []) if now - stamp < 300]
     if len(attempts) >= 8:
         return jsonify({"error": "Too many sign-in attempts. Wait a few minutes and try again."}), 429
-    user = _accounts().authenticate(payload.get("email"), payload.get("password"))
-    if not user:
-        attempts.append(now); _LOGIN_ATTEMPTS[key] = attempts
-        return jsonify({"error": "Email or password is incorrect."}), 401
+    try:
+        result = _supabase_accounts().login(payload.get("email"), payload.get("password"))
+        if not result.get("tokens"):
+            raise SupabaseError("Email or password is incorrect.", 401)
+        user = result["user"]
+        _queue_supabase_tokens(result["tokens"])
+        if not user:
+            attempts.append(now)
+            _LOGIN_ATTEMPTS[key] = attempts
+            return jsonify({"error": "Email or password is incorrect."}), 401
+    except (StoreError, SupabaseError) as error:
+        attempts.append(now)
+        _LOGIN_ATTEMPTS[key] = attempts
+        return jsonify({"error": str(error)}), getattr(error, "status", 401)
     _LOGIN_ATTEMPTS.pop(key, None)
-    session["user_id"] = user["id"]
-    session["auth_version"] = user.pop("session_version")
-    session.permanent = True
     return jsonify({"user": user})
 
 
 @app.post("/api/account/logout")
 @_csrf_required
 def account_logout():
+    try:
+        if _using_supabase():
+            _supabase_accounts().logout(request.cookies.get("nutricart_access", ""))
+    except (StoreError, SupabaseError):
+        return jsonify({"error": "Sign out failed. Please try again."}), 503
+    except Exception:
+        return jsonify({"error": "Sign out failed. Please try again."}), 500
+    _queue_supabase_tokens(clear=True)
     session.pop("user_id", None)
     session.pop("auth_version", None)
     return jsonify({"signed_out": True})
@@ -706,17 +747,24 @@ def account_logout():
 
 @app.after_request
 def protect_account_responses(response):
-    if request.path.startswith("/api/account/") or request.path in {"/reset-password", "/api/feedback"}:
+    if request.path.startswith("/api/account/") or request.path.startswith("/api/saved-items") or request.path in {"/reset-password", "/api/feedback"}:
         response.headers["Cache-Control"] = "no-store"
     if request.path == "/reset-password":
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Content-Security-Policy"] = "default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    if getattr(g, "clear_supabase_tokens", False):
+        response.delete_cookie("nutricart_access", path="/", secure=app.config["SESSION_COOKIE_SECURE"], httponly=True, samesite="Lax")
+        response.delete_cookie("nutricart_refresh", path="/", secure=app.config["SESSION_COOKIE_SECURE"], httponly=True, samesite="Lax")
+    elif getattr(g, "supabase_tokens", None):
+        tokens = g.supabase_tokens
+        response.set_cookie("nutricart_access", tokens["access_token"], max_age=max(60, int(tokens.get("expires_in") or 3600)), secure=app.config["SESSION_COOKIE_SECURE"], httponly=True, samesite="Lax", path="/")
+        response.set_cookie("nutricart_refresh", tokens["refresh_token"], max_age=60 * 60 * 24 * 365, secure=app.config["SESSION_COOKIE_SECURE"], httponly=True, samesite="Lax", path="/")
     return response
 
 
 @app.get("/reset-password")
 def reset_password_page():
-    return render_template("reset_password.html")
+    return render_template("reset_password.html", account_backend="supabase" if _using_supabase() else "local")
 
 
 @app.post("/api/account/forgot-password")
@@ -728,16 +776,26 @@ def account_forgot_password():
     except ValueError:
         return jsonify({"error": "Request body must be a JSON object."}), 400
     try:
-        email = AccountStore.normalize_email(payload.get("email"))
-    except StoreError:
-        return jsonify(confirmation)
-    store = _accounts()
-    if store.allow_password_reset_request(email, request.remote_addr or "unknown"):
-        config = {key: app.config.get(key) for key in (
-            "PASSWORD_RESET_ORIGIN", "PASSWORD_RESET_SENDER", "SMTP_HOST", "SMTP_PORT", "SMTP_FROM",
-            "SMTP_USERNAME", "SMTP_PASSWORD", "SMTP_SSL",
-        )}
-        queue_reset(app.config["ACCOUNT_DATABASE"], email, config)
+        _supabase_accounts().request_password_reset(payload.get("email"))
+    except (StoreError, SupabaseError):
+        pass
+    return jsonify(confirmation)
+
+
+@app.post("/api/account/resend-confirmation")
+@_csrf_required
+def account_resend_confirmation():
+    confirmation = {
+        "message": "If an unconfirmed account exists for that email, a new confirmation email has been sent."
+    }
+    try:
+        payload = _json_object()
+    except ValueError:
+        return jsonify({"error": "Request body must be a JSON object."}), 400
+    try:
+        _supabase_accounts().resend_signup_confirmation(payload.get("email"))
+    except (StoreError, SupabaseError):
+        pass
     return jsonify(confirmation)
 
 
@@ -748,12 +806,14 @@ def account_reset_password():
         payload = _json_object()
         if payload.get("new_password") != payload.get("confirm_password"):
             raise StoreError("New passwords do not match.")
-        _accounts().reset_password(payload.get("token"), payload.get("new_password"))
-        session.pop("user_id", None)
-        session.pop("auth_version", None)
+        recovery_token = payload.get("access_token")
+        if not isinstance(recovery_token, str) or not recovery_token:
+            raise StoreError("This reset link is invalid or expired. Request a new link.")
+        _supabase_accounts().update_password(recovery_token, payload.get("new_password"))
+        _queue_supabase_tokens(clear=True)
         return jsonify({"message": "Password reset. Sign in with your new password."})
-    except (ValueError, StoreError) as error:
-        return jsonify({"error": str(error)}), 400
+    except (ValueError, StoreError, SupabaseError) as error:
+        return jsonify({"error": str(error)}), getattr(error, "status", 400)
     except Exception:
         return jsonify({"error": "The password could not be reset. Please try again."}), 500
 
@@ -764,9 +824,11 @@ def account_reset_password():
 def account_profile():
     try:
         payload = _json_object()
-        return jsonify({"user": _accounts().update_profile(session["user_id"], payload.get("first_name"), payload.get("last_name", ""))})
-    except (ValueError, StoreError) as error:
-        return jsonify({"error": str(error)}), 400
+        user = _supabase_accounts().update_profile(g.account_access_token, payload.get("first_name"), payload.get("last_name", ""))
+        g.account_user = user
+        return jsonify({"user": user})
+    except (ValueError, StoreError, SupabaseError) as error:
+        return jsonify({"error": str(error)}), getattr(error, "status", 400)
 
 
 @app.post("/api/account/change-password")
@@ -777,34 +839,34 @@ def account_change_password():
         payload = _json_object()
         if payload.get("new_password") != payload.get("confirm_password"):
             raise StoreError("New passwords do not match.")
-        _accounts().change_password(session["user_id"], payload.get("current_password"), payload.get("new_password"))
+        result = _supabase_accounts().change_password(g.account_user["email"], payload.get("current_password"), payload.get("new_password"))
+        _queue_supabase_tokens(result.get("tokens"))
         return jsonify({"changed": True})
-    except (ValueError, StoreError) as error:
-        return jsonify({"error": str(error)}), 400
+    except (ValueError, StoreError, SupabaseError) as error:
+        return jsonify({"error": str(error)}), getattr(error, "status", 400)
 
 
 @app.delete("/api/account")
 @_csrf_required
 @_login_required
 def account_delete():
-    try:
-        payload = _json_object()
-        if payload.get("confirmation") != "DELETE":
-            raise StoreError("Type DELETE to confirm permanent account deletion.")
-        _accounts().delete_user(session["user_id"])
-        session.pop("user_id", None)
-        return jsonify({"deleted": True})
-    except (ValueError, StoreError) as error:
-        return jsonify({"error": str(error)}), 400
+    return jsonify({"error": "Account deletion is not enabled in this Supabase integration."}), 501
+
+
+def _saved_store_context():
+    user = _current_account_user()
+    return _supabase_accounts(), g.account_access_token, user["id"]
 
 
 @app.get("/api/saved-items")
 @_login_required
 def saved_items_list():
     try:
-        return jsonify({"items": _accounts().list_items(session["user_id"], request.args.get("kind"))})
-    except StoreError as error:
-        return jsonify({"error": str(error)}), 400
+        store, token, _ = _saved_store_context()
+        items = store.list_items(token, request.args.get("kind"))
+        return jsonify({"items": items})
+    except (StoreError, SupabaseError) as error:
+        return jsonify({"error": str(error)}), getattr(error, "status", 400)
 
 
 @app.post("/api/saved-items")
@@ -813,10 +875,11 @@ def saved_items_list():
 def saved_items_create():
     try:
         payload = _json_object()
-        item = _accounts().save_item(session["user_id"], payload.get("kind"), payload.get("name"), payload.get("data"))
+        store, token, user_id = _saved_store_context()
+        item = store.save_item(token, user_id, payload.get("kind"), payload.get("name"), payload.get("data"))
         return jsonify({"item": item}), 201
-    except (ValueError, StoreError) as error:
-        return jsonify({"error": str(error)}), 400
+    except (ValueError, StoreError, SupabaseError) as error:
+        return jsonify({"error": str(error)}), getattr(error, "status", 400)
     except Exception:
         return jsonify({"error": "NutriCart could not save that item."}), 500
 
@@ -825,10 +888,11 @@ def saved_items_create():
 @_login_required
 def saved_items_get(item_id):
     try:
-        item = _accounts().get_item(session["user_id"], _item_id(item_id))
+        store, token, _ = _saved_store_context()
+        item = store.get_item(token, item_id)
         return (jsonify({"item": item}), 200) if item else (jsonify({"error": "Saved item was not found."}), 404)
-    except StoreError as error:
-        return jsonify({"error": str(error)}), 400
+    except (StoreError, SupabaseError) as error:
+        return jsonify({"error": str(error)}), getattr(error, "status", 400)
 
 
 @app.patch("/api/saved-items/<item_id>")
@@ -836,10 +900,12 @@ def saved_items_get(item_id):
 @_login_required
 def saved_items_rename(item_id):
     try:
-        item = _accounts().rename_item(session["user_id"], _item_id(item_id), _json_object().get("name"))
+        payload = _json_object()
+        store, token, _ = _saved_store_context()
+        item = store.rename_item(token, item_id, payload.get("name"))
         return (jsonify({"item": item}), 200) if item else (jsonify({"error": "Saved item was not found."}), 404)
-    except (ValueError, StoreError) as error:
-        return jsonify({"error": str(error)}), 400
+    except (ValueError, StoreError, SupabaseError) as error:
+        return jsonify({"error": str(error)}), getattr(error, "status", 400)
 
 
 @app.delete("/api/saved-items/<item_id>")
@@ -847,10 +913,11 @@ def saved_items_rename(item_id):
 @_login_required
 def saved_items_delete(item_id):
     try:
-        deleted = _accounts().delete_item(session["user_id"], _item_id(item_id))
+        store, token, _ = _saved_store_context()
+        deleted = store.delete_item(token, item_id)
         return (jsonify({"deleted": True}), 200) if deleted else (jsonify({"error": "Saved item was not found."}), 404)
-    except StoreError as error:
-        return jsonify({"error": str(error)}), 400
+    except (StoreError, SupabaseError) as error:
+        return jsonify({"error": str(error)}), getattr(error, "status", 400)
 
 
 @app.post("/api/grocery-plan")
@@ -960,7 +1027,7 @@ def snap_retailers():
             raise ValueError("Radius must be greater than zero.")
         stores = find_snap_retailers(latitude, longitude, radius)
         results = [{key: store.get(key) for key in (
-            "store_name", "store_type", "distance_miles", "street_address",
+            "record_id", "store_name", "display_name", "store_type", "distance_miles", "street_address",
             "additional_address", "city", "state", "zip_code", "incentive_program",
         )} for store in stores]
         return jsonify({"retailers": results, "safety_cap_reached": bool(getattr(stores, "safety_cap_reached", False))})

@@ -1,6 +1,8 @@
 # Public demo privacy
 
-The hosted Vercel demo is guest-only. Account, cloud-save, and recovery endpoints return an unavailable response there. No private database is included or required by the hosted demo. Non-Vercel local runs retain the existing account features and use their configured local account database. Guest plans, meals, and shopping purchases remain in page memory and are cleared on reload. Mark purchased records a basket estimate in the in-memory purchase ledger; edited prices replace that estimate.
+Guest plans, meals, and shopping purchases remain in page memory and are cleared on reload. Mark purchased records a basket estimate in the in-memory purchase ledger; edited prices replace that estimate. Guest use does not require an account.
+
+When Supabase accounts are configured, Supabase Auth processes the account email, password credentials, confirmation, session, and password-recovery email. NutriCart does not store account passwords. Secure, HTTP-only cookies hold the Supabase session tokens needed by the Flask account API. Signed-in users may save grocery plans, meal plans, and shopping sessions in the Supabase nutricart_saved_items table for cross-device access. Saved JSON excludes street addresses, coordinates, retailer search results, authentication tokens, passwords, feedback, and unrelated personal data. Row Level Security limits each signed-in user to rows whose user_id matches their Supabase Auth ID. Supabase may retain account and saved-plan data under its own policies until it is deleted. When Supabase is not configured, hosted account endpoints fail closed and guest tools remain available.
 
 Settings are stored only after Remember my settings is enabled. Stored preferences do not contain baskets, purchases, addresses, or coordinates.
 
@@ -8,7 +10,7 @@ Device location is requested only after Use My Current Location and browser perm
 
 Planner requests use coarse locality/region context, which does not verify inventory. Prices are synthetic examples, not personal data or retailer observations. Store price comparison is unavailable.
 
-Flask uses a signed cookie for existing session/CSRF protections, including guest account-status requests. Set a stable FLASK_SECRET_KEY through the host dashboard and use secure cookies on HTTPS. Environment files are not loaded by this release. External service privacy and retention are outside NutriCart's control. Avoid personal information during public demonstrations.
+Flask uses a signed cookie for CSRF protection and non-authenticated session state. Supabase account sessions use separate Secure, HTTP-only, SameSite cookies. Set a stable FLASK_SECRET_KEY through the host dashboard and use secure cookies on HTTPS. Environment files are not loaded by this release. External service privacy and retention are outside NutriCart's control. Avoid personal information during public demonstrations.
 
 Feedback is optional. Public submission is available only when server-side delivery settings and deployment-wide abuse protection are active; otherwise it remains disabled. Only the chosen positive/negative rating and submitted comment are emailed to the configured NutriCart feedback recipient. No basket, purchases, location, account identifiers, or browser metadata are appended. Please omit personal and shopping information from comments. Comments are not stored in cookies, browser storage, application files, or application logs. The configured email provider and recipient may retain submitted messages under their own policies. A signed session cookie records a send timestamp for a basic cooldown.
 

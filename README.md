@@ -21,7 +21,7 @@ Planning groceries on a limited budget requires several decisions at once: where
 
 **Find Store → Build Basket → Shopping Budget → Meal Plan**
 
-The core public-demo workflow is available without an account.
+The core workflow remains available without an account. When Supabase is configured, an optional account can keep saved grocery plans, meal plans, and shopping sessions available across devices.
 
 ## Technology
 
@@ -30,10 +30,13 @@ The core public-demo workflow is available without an account.
 - PuLP for grocery-plan optimization
 - USDA and other public location-data services
 - Vercel hosting and Web Analytics
+- Optional Supabase Auth and RLS-protected saved plans
 
 ## Data and Pricing Note
 
 The public demo uses an independently assembled catalog of generic foods with nutrition data from USDA FoodData Central. Example package sizes and prices are synthetic planning inputs, not guaranteed live retailer prices. SNAP-authorized retailer information comes from USDA retailer data and does not establish product inventory or item-level SNAP eligibility.
+
+Grocery plans treat the entered budget as a ceiling. The optimizer keeps nutrition floors and diet or exclusion rules authoritative, applies bounded soft penalties for missing useful food groups and protein-family variety, and retains a positive cost penalty so additional products are selected only when they improve the plan rather than merely spending unused budget.
 
 NutriCart is not affiliated with or endorsed by USDA.
 

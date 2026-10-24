@@ -58,6 +58,98 @@ class DemoCatalogTests(unittest.TestCase):
         accepted, _ = optimize_grocery.filter_catalog(self.catalog, 'vegan', [], ['nuts','gluten'])
         self.assertFalse({'peanuts','peanut_butter','pasta'} & {p['food_profile'] for p in accepted})
 
+    def test_explicit_food_group_mapping_does_not_confuse_nuts_eggs_or_dairy(self):
+        by_profile = {row['food_profile']: row for row in self.catalog}
+        self.assertEqual(
+            optimize_grocery.product_food_groups(by_profile['peanuts']),
+            {'Protein sources', 'Nuts and seeds'},
+        )
+        self.assertEqual(
+            optimize_grocery.product_food_groups(by_profile['eggs']),
+            {'Protein sources', 'Eggs'},
+        )
+        self.assertEqual(
+            optimize_grocery.product_food_groups(by_profile['milk_2_percent']),
+            {'Dairy'},
+        )
+        vegan, _ = optimize_grocery.filter_catalog(self.catalog, 'vegan', [], [])
+        vegan_groups = set().union(*(optimize_grocery.product_food_groups(row) for row in vegan))
+        self.assertNotIn('Eggs', vegan_groups)
+        self.assertNotIn('Dairy', vegan_groups)
+
+    def test_bounded_diversity_improves_the_narrow_ten_day_case(self):
+        payload = dict(people=2, days=10, calories=2000, protein=50,
+                       fiber_mode='recommended', preference='balanced', foods_to_avoid=[],
+                       location={'locality':'Cox Mill','region':'NC'})
+        by_id = {row['product_id']: row for row in self.catalog}
+        client = app.app.test_client()
+        eligible_counts = {'vegan':28, 'vegetarian':31, 'pescatarian':32, 'omnivore':33}
+        for diet, expected_count in eligible_counts.items():
+            accepted, _ = optimize_grocery.filter_catalog(self.catalog, diet, [], [])
+            self.assertEqual(len(accepted), expected_count)
+            for budget in (60, 100, 200, 500):
+                with self.subTest(diet=diet, budget=budget):
+                    response = client.post('/api/grocery-plan', json={**payload, 'diet':diet, 'budget':budget})
+                    self.assertEqual(response.status_code, 200, response.json)
+                    result = response.json
+                    self.assertLessEqual(result['total_cost'], budget)
+                    self.assertTrue(result['acceptance']['accepted'])
+                    self.assertGreaterEqual(len(result['groceries']), 13)
+                    selected = [by_id[item['product_id']] for item in result['groceries']]
+                    category_counts = {}
+                    for item in selected:
+                        category_counts[item['food_category']] = category_counts.get(item['food_category'], 0) + 1
+                        self.assertNotIn(diet, item['excluded_diets'])
+                    for category in ('Fruit', 'Vegetables', 'Grains'):
+                        self.assertGreaterEqual(category_counts.get(category, 0), 2)
+        vegetarian = client.post('/api/grocery-plan', json={**payload, 'diet':'vegetarian', 'budget':200}).json
+        profiles = {by_id[item['product_id']]['food_profile'] for item in vegetarian['groceries']}
+        self.assertTrue(profiles & {'eggs', 'milk_2_percent', 'plain_yogurt'})
+        self.assertTrue({'tofu', 'peanuts', 'peanut_butter'} & profiles)
+
+    def test_exclusions_and_nutrition_focus_remain_strict_with_diversity(self):
+        client = app.app.test_client()
+        base = dict(budget=200, people=2, days=10, diet='vegetarian', calories=2000,
+                    protein=50, fiber_mode='recommended', preference='balanced', foods_to_avoid=[],
+                    location={'locality':'Cox Mill','region':'NC'})
+        excluded_profiles = {
+            'dairy': {'milk_2_percent','plain_yogurt','cheddar_cheese'},
+            'eggs': {'eggs'},
+            'nuts': {'peanuts','peanut_butter'},
+            'gluten': {'pasta','whole_wheat_bread'},
+        }
+        by_id = {row['product_id']: row for row in self.catalog}
+        for exclusion, forbidden in excluded_profiles.items():
+            response = client.post('/api/grocery-plan', json={**base, 'food_group_exclusions':[exclusion]})
+            self.assertEqual(response.status_code, 200, response.json)
+            profiles = {by_id[item['product_id']]['food_profile'] for item in response.json['groceries']}
+            self.assertFalse(profiles & forbidden)
+        for focus in ('high_protein','high_fiber','lower_sodium'):
+            response = client.post('/api/grocery-plan', json={**base, 'nutrition_focus':focus})
+            self.assertEqual(response.status_code, 200, response.json)
+            self.assertTrue(response.json['acceptance']['accepted'])
+
+    def test_alternatives_are_bounded_distinct_and_compliant(self):
+        client = app.app.test_client()
+        payload = dict(budget=200, people=2, days=10, diet='vegetarian', calories=2000,
+                       protein=50, fiber_mode='recommended', preference='balanced', foods_to_avoid=[],
+                       location={'locality':'Cox Mill','region':'NC'})
+        current = client.post('/api/grocery-plan', json=payload).json
+        history = []
+        for _index in range(3):
+            ids = [item['product_id'] for item in current['groceries']]
+            response = client.post('/api/grocery-plan/alternative', json={
+                **payload, 'excluded_product_ids':ids, 'previous_product_id_sets':history,
+            })
+            self.assertEqual(response.status_code, 200, response.json)
+            alternative = response.json
+            self.assertTrue(alternative['acceptance']['accepted'])
+            self.assertLessEqual(alternative['total_cost'], payload['budget'])
+            self.assertGreaterEqual(alternative['alternative_difference_count'], 4)
+            self.assertNotEqual(ids, [item['product_id'] for item in alternative['groceries']])
+            history.append(ids)
+            current = alternative
+
     def test_vercel_forces_demo_even_if_local_requested(self):
         with patch.dict(os.environ, VERCEL='1', NUTRICART_CATALOG_MODE='local'):
             self.assertEqual(catalog_config.catalog_path('food'), DEMO / 'food_catalog.json')
