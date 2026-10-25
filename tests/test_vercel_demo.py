@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 import app
 from build_vercel import ASSETS, build_assets
-from snap_store_locator import retailer_display_name
+from snap_store_locator import retailer_display_name, find_snap_retailers
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -75,7 +75,7 @@ class VercelDemoTests(unittest.TestCase):
         styles = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
         self.assertEqual(page.count('class="settings-icon"'), 1)
         self.assertEqual(page.count('class="settings-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"'), 1)
-        self.assertEqual(page.count('stroke="currentColor"'), 1)
+        self.assertIn('stroke="currentColor"', page.split('id="settings-button"', 1)[1].split('</button>', 1)[0])
         self.assertIn('id="settings-button"', page)
         self.assertIn('aria-label="Settings" title="Settings"', page)
         self.assertNotIn('id="account-menu-app-settings"', page)
@@ -83,7 +83,7 @@ class VercelDemoTests(unittest.TestCase):
         self.assertIn(".settings-icon { display: block; flex: 0 0 20px; width: 20px; height: 20px; }", styles)
         self.assertIn('<div class="app-settings-utility">', page)
         self.assertNotIn('document.querySelector(".app-settings-utility").hidden', (ROOT / "static" / "account.js").read_text(encoding="utf-8"))
-        self.assertIn("styles.css?v=workflow-78", page)
+        self.assertIn("styles.css?v=store-progress-79a", page)
 
     def test_shared_brand_logo_is_a_transparent_shopping_cart(self):
         logo = (ROOT / "templates" / "nutricart-logo.svg").read_text(encoding="utf-8").strip()
@@ -112,8 +112,8 @@ class VercelDemoTests(unittest.TestCase):
         self.assertIn("NutriCart supports plans for 1–31 days.", script)
         self.assertNotIn("People must be a whole number from 1 to 20.", script)
         self.assertNotIn("Days must be a whole number from 1 to 31.", script)
-        self.assertIn('filename=\'grocery.js\', v=\'workflow-78\'', (ROOT / "templates" / "index.html").read_text(encoding="utf-8"))
-        self.assertIn("grocery.js?v=workflow-78", page)
+        self.assertIn('filename=\'grocery.js\', v=\'store-progress-79a\'', (ROOT / "templates" / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("grocery.js?v=store-progress-79a", page)
 
     def test_omnivore_value_is_displayed_as_non_vegetarian_everywhere(self):
         page = self.client.get("/").text
@@ -187,13 +187,53 @@ class VercelDemoTests(unittest.TestCase):
         self.assertNotIn("Prices are recently observed retailer prices", page)
 
     def test_snap_retailer_display_names_are_readable_without_changing_source_names(self):
-        self.assertEqual(retailer_display_name("2701868.0 1868"), "SNAP-authorized retailer")
+        self.assertEqual(retailer_display_name("2701868.0 1868"), "SNAP retailer")
         self.assertEqual(retailer_display_name("  7-Eleven   #249238A "), "7-Eleven")
         self.assertEqual(retailer_display_name("7-eleven #41347a 41347A"), "7-Eleven")
         self.assertEqual(retailer_display_name("Circle K 1490"), "Circle K")
         self.assertEqual(retailer_display_name("99 Ranch Market"), "99 Ranch Market")
         self.assertEqual(retailer_display_name("Community Foods #A-17"), "Community Foods")
         self.assertEqual(retailer_display_name("Market 12"), "Market 12")
+
+    def test_snap_unusable_and_legacy_names_use_neutral_fallback(self):
+        for raw in (None, "", "   ", 2701868, "2701868.0 1868", "123 #456",
+                    "SNAP-authorized retailer", "snap retailer"):
+            with self.subTest(raw=raw):
+                self.assertEqual(retailer_display_name(raw), "SNAP retailer")
+
+    def test_snap_names_preserve_business_identity_and_repeated_suffixes(self):
+        for raw, expected in (
+            ("QuikTrip 1021", "QuikTrip"), ("Circle K 1490 1490", "Circle K"),
+            ("7-eleven #41347a 41347A", "7-Eleven"),
+            ("99 Ranch Market", "99 Ranch Market"), ("Market 12", "Market 12"),
+            ("24 Hour Market", "24 Hour Market"), ("7-Eleven", "7-Eleven"),
+            ("Community Foods #A-17", "Community Foods"),
+            ("Community Foods #A-17 Deli", "Community Foods #A-17 Deli"),
+        ):
+            with self.subTest(raw=raw):
+                self.assertEqual(retailer_display_name(raw), expected)
+
+    def test_snap_observed_numeric_source_survives_normalization_and_api(self):
+        # Public USDA record checked during Task 79A: no usable business name.
+        attributes = {"Record_ID": 1235424, "Store_Name": "2701868.0 1868",
+                      "Store_Street_Address": "8855 Christenbury Pkwy", "City": "Concord",
+                      "State": "NC", "Store_Type": "Convenience Store",
+                      "Latitude": 35, "Longitude": -80}
+        with patch("snap_store_locator.request_json", return_value={
+                "features": [{"attributes": attributes}], "exceededTransferLimit": False}):
+            stores = find_snap_retailers(35, -80)
+        self.assertEqual(len(stores), 1)
+        self.assertEqual(stores[0]["display_name"], "SNAP retailer")
+        self.assertEqual(stores[0]["store_name"], attributes["Store_Name"])
+        with patch.object(app, "find_snap_retailers", return_value=stores):
+            response = self.client.post("/api/snap-retailers", json={"latitude": 35, "longitude": -80, "radius_miles": 5})
+        self.assertEqual(response.status_code, 200)
+        store = response.json["retailers"][0]
+        for api_key, source_key in (("record_id", "Record_ID"), ("store_name", "Store_Name"),
+                                    ("street_address", "Store_Street_Address"), ("store_type", "Store_Type")):
+            self.assertEqual(store[api_key], attributes[source_key])
+        self.assertEqual(store["display_name"], "SNAP retailer")
+        self.assertEqual(store["distance_miles"], 0)
 
     def test_snap_api_keeps_duplicate_chain_locations_and_raw_source_names(self):
         stores = [
@@ -265,7 +305,7 @@ class VercelDemoTests(unittest.TestCase):
         self.assertIn("width: min(100%, 760px)", styles)
         self.assertIn("#meal-plan-ready .primary", styles)
         self.assertNotIn("min-height: 330px", styles.split("/* Compact unlocked Meal Plan action state. */", 1)[1])
-        self.assertIn("styles.css?v=workflow-78", page)
+        self.assertIn("styles.css?v=store-progress-79a", page)
 
     def test_feedback_modal_has_optional_two_stage_actions(self):
         page = self.client.get("/").text
@@ -483,9 +523,26 @@ print('DEMO_STARTUP_OK')
         meal = (ROOT / "static" / "meal_plan.js").read_text(encoding="utf-8")
         self.assertIn('id="workflow-progress"', page)
         self.assertIn('aria-label="NutriCart progress"', page)
-        for label in ("Store", "Plan", "Shop", "Meals"):
-            self.assertIn(f"<span>{label}</span>", page)
+        for label in ("Stores", "Groceries", "Budget", "Meals"):
+            self.assertIn(f'<span class="workflow-progress-label">{label}</span>', page)
         self.assertIn("updateWorkflowProgress", grocery)
         self.assertIn('setAttribute("aria-current", "step")', grocery)
         self.assertIn("Daily reference:", meal)
         self.assertNotIn("Target:", meal)
+
+    def test_icon_progress_keeps_noninteractive_accessible_state(self):
+        page = self.client.get("/").text
+        progress = page.split('id="workflow-progress"', 1)[1].split('</nav>', 1)[0]
+        self.assertEqual(progress.count('class="workflow-progress-icon"'), 4)
+        self.assertEqual(progress.count('class="workflow-progress-complete"'), 4)
+        self.assertEqual(progress.count('aria-hidden="true"'), 4)
+        self.assertNotIn('<button', progress)
+        self.assertNotIn('<a ', progress)
+        self.assertNotIn('workflow-progress-marker', progress)
+        grocery = (ROOT / "static/grocery.js").read_text(encoding="utf-8")
+        state = grocery.split('function updateWorkflowProgress()', 1)[1].split('function updateWorkflowState()', 1)[0]
+        self.assertNotIn('.textContent = complete', state)
+        self.assertIn('budget: shoppingComplete', state)
+        self.assertIn('planner: hasCurrentBasket()', state)
+        self.assertIn('snap: hasPlanningLocation() && hasPlanningStore()', state)
+        self.assertIn('step.setAttribute("aria-label"', state)

@@ -133,14 +133,13 @@
   }
 
   function storeDisplayName(store) {
-    const provided = String(store?.display_name || "").trim();
-    if (provided) return provided;
-    let source = String(store?.store_name || "").replace(/\s+/g, " ").trim();
-    if (!source || !/[a-z]/i.test(source)) return "SNAP-authorized retailer";
-    const identified = source.match(/^(.+?\S)\s+#\s*[a-z0-9-]+(?:\s+[a-z0-9-]+)*$/i);
+    // Re-normalize raw names first: saved records may carry an old generic label.
+    let source = String(store?.store_name || store?.source_name || store?.display_name || "").replace(/\s+/g, " ").trim();
+    if (!source || !/[a-z]/i.test(source) || /^(snap-authorized retailer|snap retailer)$/i.test(source)) return "SNAP retailer";
+    const identified = source.match(/^(.+?\S)\s+#\s*([a-z0-9-]+)(?:\s+\2)*$/i);
     if (identified && /[a-z]/i.test(identified[1])) source = identified[1].trim();
     else {
-      const numbered = source.match(/^(.+?\S)\s+\d{3,}$/);
+      const numbered = source.match(/^(.+?\S)\s+(\d{3,}[a-z]?)(?:\s+\2)*$/i);
       if (numbered && /[a-z]/i.test(numbered[1])) source = numbered[1].trim();
     }
     if (source === source.toLowerCase() || source === source.toUpperCase()) {

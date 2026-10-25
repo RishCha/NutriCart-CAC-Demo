@@ -127,15 +127,16 @@ def _normalized(value: object) -> str:
 def retailer_display_name(source_name: object) -> str:
     """Return a readable label without changing the USDA source value."""
     name = " ".join(str(source_name or "").split())
-    if not name or not any(character.isalpha() for character in name):
-        return "SNAP-authorized retailer"
+    if (not name or not any(character.isalpha() for character in name)
+            or name.casefold() in {"snap-authorized retailer", "snap retailer"}):
+        return "SNAP retailer"
     # USDA names commonly append a store identifier, sometimes repeating it
     # after a hash. Preserve the source separately and remove only terminal IDs.
-    identified = re.fullmatch(r"(.+?\S)\s+#\s*[A-Za-z0-9-]+(?:\s+[A-Za-z0-9-]+)*", name)
+    identified = re.fullmatch(r"(.+?\S)\s+#\s*([A-Za-z0-9-]+)(?:\s+\2)*", name, re.IGNORECASE)
     if identified and any(character.isalpha() for character in identified.group(1)):
         name = identified.group(1).strip()
     else:
-        numbered = re.fullmatch(r"(.+?\S)\s+\d{3,}", name)
+        numbered = re.fullmatch(r"(.+?\S)\s+(\d{3,}[A-Za-z]?)(?:\s+\2)*", name, re.IGNORECASE)
         if numbered and any(character.isalpha() for character in numbered.group(1)):
             name = numbered.group(1).strip()
     if name.islower() or name.isupper():

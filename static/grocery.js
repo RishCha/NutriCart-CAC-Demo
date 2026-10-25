@@ -122,7 +122,7 @@
 
   function updateWorkflowProgress() {
     const order = ["snap", "planner", "budget", "meal"];
-    const names = {snap: "Store", planner: "Plan", budget: "Shop", meal: "Meals"};
+    const names = {snap: "Stores", planner: "Groceries", budget: "Budget", meal: "Meals"};
     const currentIndex = order.indexOf(activeViewName);
     workflowProgress.hidden = currentIndex < 0;
     if (currentIndex < 0) return;
@@ -136,7 +136,6 @@
       if (current) step.setAttribute("aria-current", "step");
       else step.removeAttribute("aria-current");
       step.setAttribute("aria-label", `${names[key]}, ${current ? "current step" : complete ? "complete" : "not complete"}`);
-      step.querySelector(".workflow-progress-marker").textContent = complete ? "✓" : String(index + 1);
     });
     workflowProgressStatus.textContent = `${names[activeViewName]}, step ${currentIndex + 1} of 4`;
   }

@@ -6,7 +6,7 @@
   <title>NutriCart</title>
   {% set brand_icon %}{% include "nutricart-logo.svg" %}{% endset %}
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,{{ brand_icon|urlencode }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='workflow-78') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='store-progress-79a') }}">
 </head>
 <body>
   <main class="shell">
@@ -37,10 +37,22 @@
 
     <nav id="workflow-progress" class="workflow-progress" aria-label="NutriCart progress" hidden>
       <ol>
-        <li data-progress-step="snap"><span class="workflow-progress-marker" aria-hidden="true">1</span><span>Store</span></li>
-        <li data-progress-step="planner"><span class="workflow-progress-marker" aria-hidden="true">2</span><span>Plan</span></li>
-        <li data-progress-step="budget"><span class="workflow-progress-marker" aria-hidden="true">3</span><span>Shop</span></li>
-        <li data-progress-step="meal"><span class="workflow-progress-marker" aria-hidden="true">4</span><span>Meals</span></li>
+        <li data-progress-step="snap">
+          <span class="workflow-progress-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 11-8 11S4 16 4 10a8 8 0 1 1 16 0Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg><svg class="workflow-progress-complete" viewBox="0 0 16 16" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 8 3 3 7-7"></path></svg></span>
+          <span class="workflow-progress-label">Stores</span>
+        </li>
+        <li data-progress-step="planner">
+          <span class="workflow-progress-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m7 9 5-6 5 6M3 9h18l-2 11H5L3 9ZM9 12v5m6-5v5"></path></svg><svg class="workflow-progress-complete" viewBox="0 0 16 16" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 8 3 3 7-7"></path></svg></span>
+          <span class="workflow-progress-label">Groceries</span>
+        </li>
+        <li data-progress-step="budget">
+          <span class="workflow-progress-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 8V5a2 2 0 0 0-2-2L5 6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h15V8H5a2 2 0 0 1 0-4"></path><path d="M20 12h-5v5h5"></path><path d="M16.5 14.5h.01"></path></svg><svg class="workflow-progress-complete" viewBox="0 0 16 16" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 8 3 3 7-7"></path></svg></span>
+          <span class="workflow-progress-label">Budget</span>
+        </li>
+        <li data-progress-step="meal">
+          <span class="workflow-progress-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3v5a3 3 0 0 0 6 0V3M8 3v18M16 8c0-3 1-5 2.5-5S21 5 21 8s-1 4-2.5 4S16 11 16 8Zm2.5 4v9"></path></svg><svg class="workflow-progress-complete" viewBox="0 0 16 16" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 8 3 3 7-7"></path></svg></span>
+          <span class="workflow-progress-label">Meals</span>
+        </li>
       </ol>
       <p id="workflow-progress-status" class="sr-only" aria-live="polite"></p>
     </nav>
@@ -395,8 +407,8 @@
   <script src="{{ url_for('static', filename='settings.js', v='saved-cards-74b') }}" defer></script>
   <script src="{{ url_for('static', filename='password_fields.js', v='password-meter-77a') }}" defer></script>
   <script src="{{ url_for('static', filename='account.js', v='password-meter-77a') }}" defer></script>
-  <script src="{{ url_for('static', filename='app.js', v='account-signout-73') }}" defer></script>
-  <script src="{{ url_for('static', filename='grocery.js', v='workflow-78') }}" defer></script>
+  <script src="{{ url_for('static', filename='app.js', v='store-progress-79a') }}" defer></script>
+  <script src="{{ url_for('static', filename='grocery.js', v='store-progress-79a') }}" defer></script>
   <script src="{{ url_for('static', filename='price_comparison.js', v='location-planning-1') }}" defer></script>
   <script src="{{ url_for('static', filename='meal_plan.js', v='workflow-78') }}" defer></script>
   <script src="{{ url_for('static', filename='budget_tracker.js', v='workflow-78') }}" defer></script>
