@@ -106,7 +106,7 @@
         guidanceTitle.textContent = category === "unknown" ? "Grocery selection unknown" : "Limited grocery selection";
         guidanceText.textContent = category === "unknown"
           ? "This retailer's grocery assortment is unknown. Store-specific inventory is not available."
-          : "This SNAP retailer may not carry the foods needed for a complete household grocery plan. Store-specific inventory is not available.";
+          : "This retailer accepts SNAP. Availability for a full grocery plan has not been verified.";
         acknowledgeButton.hidden = category !== "unknown" || selectedStore.illustrative_plan_acknowledged === true;
         selectedCard.append(guidance);
       }
@@ -310,8 +310,23 @@
   }
   function updateRetailerCount() {
     const filtered = filteredRetailers();
-    countLabel.textContent = `${Math.min(visibleCount, filtered.length)} of ${filtered.length} ${retailerFilter === "all" ? "SNAP retailers" : "planning candidates"} shown \u00b7 ${retailers.length} SNAP retailers found`;
-    if (!filtered.length && retailers.length) countLabel.textContent = "No full-grocery planning stores were found in this search area. Try a larger radius or view all SNAP retailers.";
+    const shown = Math.min(visibleCount, filtered.length);
+    const total = retailers.length;
+    const eligible = retailers.filter(store => storeSuitability(store).category === "full").length;
+    countLabel.dataset.displayedCount = String(shown);
+    countLabel.dataset.eligibleCount = String(eligible);
+    countLabel.dataset.totalCount = String(total);
+    document.querySelector("#all-retailers-help").hidden = retailerFilter !== "all";
+    if (retailerFilter === "all") {
+      countLabel.textContent = shown < total
+        ? `Showing ${shown} of ${total} SNAP retailers`
+        : `Showing all ${total} SNAP retailer${total === 1 ? "" : "s"}`;
+    } else {
+      const quantity = shown < filtered.length ? `${shown} of ${filtered.length}` : String(shown);
+      countLabel.textContent = `Showing ${quantity} grocery store${filtered.length === 1 ? "" : "s"} \u00b7 ${total} SNAP retailer${total === 1 ? "" : "s"} nearby`;
+      if (!filtered.length && total) countLabel.textContent = `No grocery planning stores found \u00b7 ${total} SNAP retailer${total === 1 ? "" : "s"} nearby. Try a larger radius or view all SNAP retailers.`;
+    }
+    showMoreButton.setAttribute("aria-label", `Show more ${retailerFilter === "all" ? "SNAP retailers" : "grocery planning stores"}, ${shown} of ${filtered.length} shown`);
   }
   function renderRetailers() {
     visibleCount = 0;
@@ -473,6 +488,17 @@
     resultsContainer.replaceChildren();
     resultsSection.hidden = true;
     status.textContent = "Choose a new location to search.";
+  });
+  document.addEventListener("nutricart:trip-reset", () => {
+    locationRequestId += 1;
+    searchRequestId += 1;
+    activeSearchController?.abort();
+    activeSearchController = null;
+    publishStore(null); // The address, resolved location, radius and raw results stay available.
+    retailerFilter = "suitable";
+    filterInputs.forEach(input => { input.checked = input.value === retailerFilter; });
+    setSearchLoading(false);
+    renderRetailers();
   });
   document.addEventListener("nutricart:account-signed-out", () => {
     locationRequestId += 1;

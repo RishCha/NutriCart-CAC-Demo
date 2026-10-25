@@ -36,7 +36,7 @@ class ShoppingBudgetPageTests(unittest.TestCase):
         self.assertIn('id="purchase-store-disclosure"', self.page)
         self.assertIn("+ Add store (optional)", self.page)
         self.assertIn("Record Purchase", self.page)
-        self.assertIn("budget_tracker.js?v=workflow-78", self.page)
+        self.assertIn("budget_tracker.js?v=trip-reset-83", self.page)
         self.assertNotIn('id="budget-percent"', self.page)
         self.assertNotIn('id="budget-status-copy"', self.page)
         self.assertIn('aria-label="Budget remaining"', self.page)

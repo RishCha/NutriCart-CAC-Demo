@@ -84,7 +84,7 @@ class VercelDemoTests(unittest.TestCase):
         self.assertIn(".settings-icon { display: block; flex: 0 0 20px; width: 20px; height: 20px; }", styles)
         self.assertIn('<div class="app-settings-utility">', page)
         self.assertNotIn('document.querySelector(".app-settings-utility").hidden', (ROOT / "static" / "account.js").read_text(encoding="utf-8"))
-        self.assertIn("styles.css?v=retailer-policy-81", page)
+        self.assertIn("styles.css?v=trip-reset-83", page)
 
     def test_shared_brand_logo_is_the_approved_smart_grocery_basket(self):
         logo = (ROOT / "templates" / "nutricart-logo.svg").read_text(encoding="utf-8").strip()
@@ -133,8 +133,8 @@ class VercelDemoTests(unittest.TestCase):
         self.assertIn("NutriCart supports plans for 1–31 days.", script)
         self.assertNotIn("People must be a whole number from 1 to 20.", script)
         self.assertNotIn("Days must be a whole number from 1 to 31.", script)
-        self.assertIn('filename=\'grocery.js\', v=\'retailer-policy-81\'', (ROOT / "templates" / "index.html").read_text(encoding="utf-8"))
-        self.assertIn("grocery.js?v=retailer-policy-81", page)
+        self.assertIn('filename=\'grocery.js\', v=\'trip-reset-83\'', (ROOT / "templates" / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("grocery.js?v=trip-reset-83", page)
 
     def test_omnivore_value_is_displayed_as_non_vegetarian_everywhere(self):
         page = self.client.get("/").text
@@ -298,11 +298,31 @@ class VercelDemoTests(unittest.TestCase):
         ):
             self.assertIn(text, page + script)
         self.assertIn("A ${data.rotation_days}-day meal rotation for your ${data.days_requested}-day grocery plan.", script)
-        self.assertIn('document.querySelector("#edit-plan").click()', script)
+        self.assertIn('newTripDialog.showModal()', script)
+        self.assertIn('id="new-trip-dialog"', page)
         self.assertIn('navigate("planner")', script)
         self.assertIn("meal-card--${mealType", script)
         self.assertIn(".meal-product-details summary:focus-visible", styles)
         self.assertIn(".meal-completion-actions", styles)
+
+    def test_new_trip_warning_and_dialog_offer_safe_explicit_actions(self):
+        page = self.client.get("/").text
+        self.assertIn("Starting a new trip resets your current plan and shopping progress. Save your plan first if you want to keep it.", page)
+        self.assertIn('aria-controls="new-trip-dialog" aria-describedby="new-trip-warning"', page)
+        self.assertIn('<dialog id="new-trip-dialog" class="new-trip-dialog" aria-labelledby="new-trip-title" aria-describedby="new-trip-message">', page)
+        self.assertIn("Start a new grocery trip?", page)
+        self.assertIn("Your current grocery basket, shopping progress, and meal plan will be reset. Save your plan first if you want to keep it.", page)
+        self.assertIn('id="new-trip-cancel" class="secondary" type="button" autofocus>Cancel', page)
+        self.assertIn('id="new-trip-save" class="secondary" type="button">Save My Plan', page)
+        self.assertIn('id="new-trip-confirm" class="primary" type="button">Start New Trip', page)
+        script = (ROOT / "static/meal_plan.js").read_text(encoding="utf-8")
+        opening = script.split('document.querySelector("#meal-plan-another").addEventListener', 1)[1].split('});', 1)[0]
+        self.assertIn("showModal()", opening)
+        self.assertNotIn("trip-reset", opening)
+        self.assertNotIn('navigate("planner")', opening)
+        save = script.split('document.querySelector("#new-trip-save").addEventListener', 1)[1].split('});', 1)[0]
+        self.assertIn('document.querySelector("#save-grocery-plan").click()', save)
+        self.assertNotIn("trip-reset", save)
 
     def test_runtime_recipe_enhancement_is_not_shipped(self):
         page = self.client.get("/").text
@@ -326,7 +346,7 @@ class VercelDemoTests(unittest.TestCase):
         self.assertIn("width: min(100%, 760px)", styles)
         self.assertIn("#meal-plan-ready .primary", styles)
         self.assertNotIn("min-height: 330px", styles.split("/* Compact unlocked Meal Plan action state. */", 1)[1])
-        self.assertIn("styles.css?v=retailer-policy-81", page)
+        self.assertIn("styles.css?v=trip-reset-83", page)
 
     def test_feedback_modal_has_optional_two_stage_actions(self):
         page = self.client.get("/").text

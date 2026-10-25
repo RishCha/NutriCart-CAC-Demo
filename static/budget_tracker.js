@@ -53,6 +53,7 @@
   let restoredShoppingSession = false;
   let purchaseSuccessTimer = null;
   let shoppingComplete = false;
+  let moneyAnimationRevision = 0;
 
   function parseCents(raw, allowZero = false) {
     const normalized = String(raw).trim().replace(/^\$/, "").replace(/,/g, "");
@@ -102,9 +103,11 @@
       element.textContent = formatMoney(toCents);
       return;
     }
+    const revision = moneyAnimationRevision;
     const started = performance.now();
     const duration = 380;
     function frame(now) {
+      if (revision !== moneyAnimationRevision) return;
       const progress = Math.min((now - started) / duration, 1);
       const eased = 1 - Math.pow(1 - progress, 3);
       element.textContent = formatMoney(Math.round(fromCents + ((toCents - fromCents) * eased)));
@@ -395,7 +398,8 @@
     renderStoreContext(event.detail?.context);
     updatePlannedItems(event.detail?.plannedItems);
   });
-  document.addEventListener("nutricart:account-signed-out", () => {
+  function clearActiveShoppingSession() {
+    moneyAnimationRevision += 1;
     clearPurchaseSuccess();
     startingCents = 0;
     purchases = [];
@@ -419,7 +423,9 @@
     renderLog();
     renderTotals();
     liveStatus.textContent = "";
-  });
+  }
+  document.addEventListener("nutricart:account-signed-out", clearActiveShoppingSession);
+  document.addEventListener("nutricart:trip-reset", clearActiveShoppingSession);
   [document.querySelector("#create-grocery-plan"), document.querySelector("#shopping-list-create-plan")].forEach(button => button.addEventListener("click", () => {
     document.dispatchEvent(new CustomEvent("nutricart:navigate", {detail: {view: "planner"}}));
   }));

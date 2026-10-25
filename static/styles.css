@@ -2084,3 +2084,18 @@ html { scroll-padding-top: var(--header-offset, 190px); }
 .store-planning-guidance h4 { margin: 0 0 .4rem; font-size: 1rem; }
 .store-planning-guidance button { margin: .4rem .5rem 0 0; max-width: 100%; white-space: normal; }
 @media (max-width: 420px) { .retailer-filters { flex-direction: column; } .store-planning-guidance button { width: 100%; margin-right: 0; } }
+
+/* A confirmed new trip clears only the active working session. */
+.meal-completion-actions { align-items: flex-start; }
+.meal-new-trip-action { width: min(100%, 360px); }
+.meal-completion .new-trip-help { margin: 8px 0 0; font-size: .875rem; line-height: 1.5; }
+body.new-trip-open { overflow: hidden; }
+.new-trip-dialog { width: min(500px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto; padding: clamp(20px, 4vw, 28px); border: 1px solid var(--line); border-radius: var(--radius-card); background: #fffdf8; color: var(--dark); }
+.new-trip-dialog::backdrop { background: #17352a55; }
+.new-trip-dialog h2 { margin: 0 0 12px; font-size: 1.4rem; line-height: 1.25; }
+.new-trip-dialog p { margin: 0; color: var(--muted); line-height: 1.55; }
+.new-trip-dialog .action-row { margin-top: 20px; gap: 8px; }
+.new-trip-dialog button { min-height: 44px; }
+.new-trip-dialog button:focus-visible { outline: 3px solid var(--green-dark); outline-offset: 3px; }
+@media (max-width: 700px) { .meal-completion-actions { align-items: stretch; } .meal-new-trip-action { width: 100%; } .meal-new-trip-action > button { width: 100%; } }
+@media (max-width: 480px) { .new-trip-dialog .action-row { flex-direction: column; align-items: stretch; } }

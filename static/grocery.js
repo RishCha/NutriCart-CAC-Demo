@@ -152,7 +152,7 @@
     document.querySelector("#planner-locked-title").textContent = blockedStore ? (unknownStore ? "Grocery selection unknown" : "Limited grocery selection") : "Build Your Basket";
     document.querySelector("#planner-gate-message").textContent = blockedStore
       ? (unknownStore ? "This retailer's grocery assortment is unknown. Store-specific inventory is not available."
-        : "This SNAP retailer may not carry the foods needed for a complete household grocery plan. Store-specific inventory is not available.")
+        : "This retailer accepts SNAP. Availability for a full grocery plan has not been verified.")
       : "Find a SNAP-authorized store first to unlock grocery planning.";
     document.querySelector("#set-planning-location").textContent = blockedStore ? (unknownStore ? "Review Store Selection" : "Find a Grocery Store") : "Find SNAP Stores";
     plannerGate.hidden = plannerReady;
@@ -1044,6 +1044,38 @@
     stopGeneration();
     if (hasCurrentBasket()) invalidateCurrentPlanForLocation();
     else updateWorkflowState();
+  });
+  document.addEventListener("nutricart:trip-reset", async () => {
+    stopGeneration();
+    window.clearTimeout(feasibilityTimer);
+    feasibilityController?.abort();
+    feasibilityController = null;
+    feasibilityRequest += 1;
+    currentFeasibility = null;
+    resetFeasibilityGuidance();
+    currentResult = null;
+    currentPlan = null;
+    currentPlanRevision += 1;
+    reviewedInputs = null;
+    alternativeHistory = [];
+    budgetSessionReady = false;
+    shoppingComplete = false;
+    resultsSection.hidden = true;
+    reviewSection.hidden = true;
+    form.hidden = true;
+    reviewDetails.replaceChildren();
+    renderGroceries([]);
+    document.querySelector("#receipt-context").textContent = "";
+    [plannerError, plannerStatus, planError, generateStatus].forEach(output => { output.textContent = ""; });
+    document.dispatchEvent(new CustomEvent("nutricart:plan-updated", {detail: currentPlanDetail()}));
+    updateSnapPlanContext();
+    updateWorkflowState();
+    while (viewTransitioning) await wait(20);
+    await switchView("snap");
+    const focusTarget = document.querySelector("#results-section").hidden
+      ? document.querySelector("#location-button") : document.querySelector("#results-title");
+    focusTarget.setAttribute("tabindex", "-1");
+    focusTarget.focus({preventScroll: true});
   });
   document.addEventListener("nutricart:account-signed-out", async () => {
     stopGeneration();

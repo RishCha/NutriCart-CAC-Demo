@@ -259,7 +259,9 @@ class SupabaseAdapterTests(unittest.TestCase):
     def test_browser_sanitizes_saved_payload_before_submission(self):
         script = Path("static/account.js").read_text(encoding="utf-8")
         self.assertIn("function sanitizedSaveData(value)", script)
-        self.assertIn("data: sanitizedSaveData(pendingSave.data)", script)
+        self.assertIn("const save = pendingSave;", script)
+        self.assertIn("data: sanitizedSaveData(save.data)", script)
+        self.assertIn("if (pendingSave !== save) return;", script)
         for key in ("latitude", "longitude", "address", "access_token", "password"):
             self.assertIn(f'"{key}"', script)
 

@@ -308,6 +308,8 @@
 
   function openSaveDialog(save) {
     pendingSave = save;
+    document.querySelector("#save-confirm").disabled = false;
+    document.querySelector("#save-confirm").textContent = "Save";
     const guest = !user;
     saveDialog.hidden = false; saveBackdrop.hidden = false;
     document.querySelector("#save-dialog-title").textContent = guest ? "Save Your Plan" : save.title;
@@ -326,17 +328,19 @@
 
   async function savePending() {
     if (!user || !pendingSave) return;
+    const save = pendingSave;
     const confirm = document.querySelector("#save-confirm");
     try {
       const name = document.querySelector("#save-item-name").value;
       confirm.disabled = true; confirm.textContent = "Saving...";
-      const {item} = await api("/api/saved-items", {method: "POST", body: JSON.stringify({kind: pendingSave.kind, name, data: sanitizedSaveData(pendingSave.data)})});
-      libraryCache.delete(pendingSave.kind === "shopping_list" ? "shopping_list" : "plans");
-      if (pendingSave.kind === "grocery_plan") { currentPlanSavedId = item.id; showGroceryPlanSaved(true); }
-      document.querySelector("#save-status").textContent = pendingSave.kind === "shopping_list" ? "✓ Shopping session saved" : pendingSave.kind === "meal_plan" ? "✓ Meal plan saved" : "✓ Plan saved";
-      window.setTimeout(closeSaveDialog, 650);
-    } catch (error) { document.querySelector("#save-status").textContent = `We couldn't save this right now. Your current work is still available. ${error.message}`; }
-    finally { confirm.disabled = false; confirm.textContent = "Save"; }
+      const {item} = await api("/api/saved-items", {method: "POST", body: JSON.stringify({kind: save.kind, name, data: sanitizedSaveData(save.data)})});
+      libraryCache.delete(save.kind === "shopping_list" ? "shopping_list" : "plans");
+      if (pendingSave !== save) return;
+      if (save.kind === "grocery_plan") { currentPlanSavedId = item.id; showGroceryPlanSaved(true); }
+      document.querySelector("#save-status").textContent = save.kind === "shopping_list" ? "✓ Shopping session saved" : save.kind === "meal_plan" ? "✓ Meal plan saved" : "✓ Plan saved";
+      window.setTimeout(() => { if (pendingSave === save) closeSaveDialog(); }, 650);
+    } catch (error) { if (pendingSave !== save) return; document.querySelector("#save-status").textContent = `We couldn't save this right now. Your current work is still available. ${error.message}`; }
+    finally { if (!pendingSave || pendingSave === save) { confirm.disabled = false; confirm.textContent = "Save"; } }
   }
 
   function itemCard(item) {
@@ -493,9 +497,19 @@
   document.addEventListener("nutricart:plan-updated", event => {
     const detail = event.detail || {};
     const result = {...(detail.result || {}), groceries: detail.plannedItems || []};
-    currentPlan = {context: detail.context || {}, result};
+    currentPlan = result.groceries.length ? {context: detail.context || {}, result} : null;
     currentPlanSavedId = null;
     showGroceryPlanSaved(false);
+  });
+  document.addEventListener("nutricart:trip-reset", () => {
+    currentPlan = null;
+    currentMeal = null;
+    currentPlanSavedId = null;
+    closeSaveDialog();
+    showGroceryPlanSaved(false);
+    document.querySelector("#save-meal-plan").textContent = "Save Meal Plan";
+    document.querySelector("#save-shopping-list").textContent = "Save Shopping Session";
+    // Keep the signed-in user, library cache and all cloud records unchanged.
   });
   document.addEventListener("nutricart:meal-rendered", event => { currentMeal = event.detail; document.querySelector("#save-meal-plan").textContent = "Save Meal Plan"; });
   document.addEventListener("nutricart:budget-state", event => {

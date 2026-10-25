@@ -224,7 +224,9 @@ class MealPlanPageTests(unittest.TestCase):
         self.assertIn("A ${data.rotation_days}-day meal rotation for your ${data.days_requested}-day grocery plan.", self.script)
         self.assertIn('document.querySelector("#meal-plan-another")', self.script)
         self.assertIn('document.querySelector("#meal-back-to-basket")', self.script)
-        self.assertIn('document.querySelector("#edit-plan").click()', self.script)
+        self.assertIn("newTripDialog.showModal()", self.script)
+        self.assertIn('document.querySelector("#new-trip-confirm")', self.script)
+        self.assertIn('document.dispatchEvent(new Event("nutricart:trip-reset"))', self.script)
 
     def test_nutrition_commentary_is_removed_from_the_ui(self):
         for text in ("Nutrition Insights", "PLANNING OBSERVATIONS", "nutrition-insights", "meal-insights",
@@ -267,7 +269,7 @@ class MealPlanPageTests(unittest.TestCase):
         self.assertIn("Legacy step", str(legacy))
         self.assertNotIn("meal.directions", self.script)
         self.assertNotIn("recipe_directions_ai_assisted", self.script)
-        self.assertIn("meal_plan.js?v=workflow-78", self.page)
+        self.assertIn("meal_plan.js?v=trip-reset-83", self.page)
 
     def test_long_plan_rotation_is_explicit(self):
         self.assertIn("A ${data.rotation_days}-day meal rotation for your ${data.days_requested}-day grocery plan.", self.script)

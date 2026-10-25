@@ -161,7 +161,7 @@
   document.addEventListener("nutricart:plan-updated", event => {
     applyCurrentPlan(event.detail || {});
   });
-  document.addEventListener("nutricart:account-signed-out", () => {
+  function clearActiveMeals() {
     if (activeRequest) activeRequest.abort();
     activeRequest = null;
     planVersion += 1;
@@ -181,7 +181,9 @@
     ready.hidden = true;
     createButton.disabled = false;
     setStatus("");
-  });
+  }
+  document.addEventListener("nutricart:account-signed-out", clearActiveMeals);
+  document.addEventListener("nutricart:trip-reset", clearActiveMeals);
   document.addEventListener("nutricart:navigate", event => {
     if (event.detail?.view !== "meal") return;
     const snapshot = window.NutriCartPlanState?.get();
@@ -199,9 +201,30 @@
   document.querySelector("#meal-back-to-budget").addEventListener("click", () => navigate("budget"));
   document.querySelector("#meal-back-to-plan").addEventListener("click", () => navigate("planner"));
   document.querySelector("#meal-back-to-basket").addEventListener("click", () => navigate("planner"));
+  const newTripDialog = document.querySelector("#new-trip-dialog");
   document.querySelector("#meal-plan-another").addEventListener("click", () => {
-    navigate("planner");
-    document.querySelector("#edit-plan").click();
+    if (newTripDialog.open) return;
+    newTripDialog.showModal();
+    document.body.classList.add("new-trip-open");
+    document.querySelector("#new-trip-cancel").focus();
+  });
+  newTripDialog.addEventListener("keydown", event => {
+    if (event.key !== "Tab") return;
+    const controls = [...newTripDialog.querySelectorAll("button:not([disabled])")];
+    const first = controls[0], last = controls[controls.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  });
+  newTripDialog.addEventListener("close", () => document.body.classList.remove("new-trip-open"));
+  document.querySelector("#new-trip-cancel").addEventListener("click", () => newTripDialog.close());
+  document.querySelector("#new-trip-save").addEventListener("click", () => {
+    newTripDialog.close();
+    document.querySelector("#save-grocery-plan").click();
+  });
+  document.querySelector("#new-trip-confirm").addEventListener("click", () => {
+    if (!newTripDialog.open) return;
+    newTripDialog.close();
+    document.dispatchEvent(new Event("nutricart:trip-reset"));
   });
   document.querySelector("#meal-find-snap").addEventListener("click", () => navigate("snap"));
   document.querySelector("#meal-compare-basket").addEventListener("click", () => { navigate("planner"); setTimeout(() => document.dispatchEvent(new Event("nutricart:open-comparison")), 420); });

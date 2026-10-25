@@ -135,6 +135,14 @@ class RetailerPolicyTests(unittest.TestCase):
         self.assertIn('id="retailer-count" role="status" aria-live="polite"', page)
         self.assertIn("Illustrative grocery selections and prices. Availability at the selected store has not been verified.", page)
 
+    def test_store_finder_copy_distinguishes_planning_stores_from_all_snap(self):
+        page = app.app.test_client().get("/").text
+        self.assertIn("Find stores suitable for grocery planning, or view all SNAP retailers. Product availability may vary.", page)
+        self.assertIn('value="suitable" checked> Grocery planning stores', page)
+        self.assertIn('value="all"> All SNAP retailers', page)
+        self.assertIn("Includes convenience and specialty stores that accept SNAP; a full grocery assortment is not verified.", page)
+        self.assertNotIn("The planning view shows broader grocery categories.", page)
+
     def test_missing_or_invalid_policy_fails_conservatively(self):
         retailer_policy.cache_clear()
         self.addCleanup(retailer_policy.cache_clear)

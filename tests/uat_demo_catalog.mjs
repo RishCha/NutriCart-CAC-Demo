@@ -118,6 +118,8 @@ try {
   await once(socket, "open");
   await cdp("Page.enable");
   await cdp("Runtime.enable");
+  await cdp("Page.bringToFront");
+  await cdp("Emulation.setFocusEmulationEnabled", {enabled: true});
   const version = await cdp("Browser.getVersion");
   console.log(`Browser: ${version.userAgent}`);
   await cdp("Emulation.setLocaleOverride", {locale: "en-US"});
@@ -368,10 +370,19 @@ try {
     if(url==='/api/snap-retailers')return Promise.resolve(new Response(JSON.stringify({retailers:window.fixtureStores||Array.from({length:window.fixtureCount},(_,i)=>({record_id:'fixture-'+i,store_name:window.fixtureNames[i]||'Fixture store '+(i+1),store_type:window.fixtureTypes?.[i]||'Supermarket',city:'Anchorage',state:'AK',street_address:'Test street '+(i+1),distance_miles:i+1}))}),{status:200}));
     return window.realFetch(url,opts);
   }`);
-  for(const count of [0,1,2]) {
+  for(const count of [0,1,2,23]) {
     await evaluate(`window.fixtureCount=${count}`);await fill({address:'Public test fixture'});await click('#address-button');
-    check(await evaluate(`document.querySelectorAll('[name=snap_store]').length===${count} && !document.querySelector('#snap-build-basket') && !NutriCartStore.get()`),'Fixture '+count+' results require explicit choice');
+    check(await evaluate(`document.querySelectorAll('[name=snap_store]').length===${Math.min(count,10)} && !document.querySelector('#snap-build-basket') && !NutriCartStore.get()`),'Fixture '+count+' results require explicit choice');
     if(count) {await click('[name=snap_store]');check(await evaluate("!!NutriCartStore.get() && !!document.querySelector('#snap-build-basket')"),'Fixture '+count+' selection enables continuation');}
+    check(await evaluate(`document.querySelector('#retailer-count').dataset.displayedCount==='${Math.min(count,10)}'&&document.querySelector('#retailer-count').dataset.eligibleCount==='${count}'&&document.querySelector('#retailer-count').dataset.totalCount==='${count}'`),'Filtered, total and displayed counts are truthful for '+count+' records');
+    if(count>10){
+      check(await evaluate("document.querySelector('#retailer-count').textContent==='Showing 10 of 23 grocery stores \u00b7 23 SNAP retailers nearby'&&!document.querySelector('#show-more').hidden&&document.querySelector('#show-more').getAttribute('aria-label').includes('10 of 23 shown')"),'Partial grocery counts expose the matching total and accessible pagination');
+      await click('#show-more');await click('#show-more');
+      check(await evaluate("document.querySelectorAll('.store-card').length===23&&document.querySelector('#show-more').hidden&&document.querySelector('#retailer-count').textContent==='Showing 23 grocery stores \u00b7 23 SNAP retailers nearby'&&document.querySelector('[name=snap_store][value=\"0\"]').checked"),'Show More reaches every matching store and preserves the selection');
+      await click('[name=retailer_filter][value=all]');
+      check(await evaluate("document.querySelector('#retailer-count').textContent==='Showing 10 of 23 SNAP retailers'&&!document.querySelector('#all-retailers-help').hidden"),'All SNAP retailers shows truthful pagination and explicit assortment context');
+      await click('[name=retailer_filter][value=suitable]');
+    }
   }
   await evaluate("window.fixtureNames=['2701868.0 1868','7-eleven #41347a 41347A','99 Ranch Market','Circle K 1490'];window.fixtureCount=4;window.fixtureTypes=['Convenience Store','Convenience Store','Supermarket','Convenience Store']");await fill({address:'Public test fixture'});await click('#address-button');
   await click('[name=retailer_filter][value=all]');
@@ -390,7 +401,7 @@ try {
   ];
   await evaluate(`window.fixtureStores=${JSON.stringify(policyFixtures)}`);await fill({address:'Public test fixture'});await click('#address-button');
   await click('[name=retailer_filter][value=suitable]');
-  check(await evaluate("document.querySelectorAll('.store-card').length===1 && document.querySelector('.store-card h3').textContent==='99 Ranch Market' && document.querySelector('#retailer-count').textContent==='1 of 1 planning candidates shown \u00b7 5 SNAP retailers found' && !NutriCartStore.get()"),'Default planning filter retains raw count and never auto-selects');
+  check(await evaluate("document.querySelectorAll('.store-card').length===1 && document.querySelector('.store-card h3').textContent==='99 Ranch Market' && document.querySelector('#retailer-count').textContent==='Showing 1 grocery store \u00b7 5 SNAP retailers nearby' && !NutriCartStore.get()"),'Default planning filter retains raw count and never auto-selects');
   await click('[name=retailer_filter][value=all]');
   check(await evaluate("document.querySelectorAll('.store-card').length===5 && document.querySelector('.store-card h3').textContent==='Circle K' && document.querySelectorAll('.store-card h3')[4].textContent==='Store name unavailable' && document.querySelectorAll('.store-card')[4].textContent.includes('SNAP-authorized retailer')"),'Verified Circle K mapping is exact; nearby numeric record remains transparently unresolved');
   await click('[name=snap_store][value="0"]');
@@ -423,7 +434,7 @@ try {
   check(await evaluate("!NutriCartWorkflow.get().storeReady && !NutriCartStore.get().illustrative_plan_acknowledged"),'Acknowledgement never transfers to a different retailer category');
   await evaluate("window.fixtureStores=window.fixtureStores.filter(store=>store.store_type!=='Supermarket')");
   await fill({address:'Public test fixture'});await click('#address-button');await click('[name=retailer_filter][value=suitable]');
-  check(await evaluate("document.querySelectorAll('.store-card').length===0 && document.querySelector('#retailer-count').textContent==='No full-grocery planning stores were found in this search area. Try a larger radius or view all SNAP retailers.' && document.querySelector('#status').textContent.includes('4 SNAP-authorized retailers')"),'No suitable candidates is distinguished from no SNAP retailers');
+  check(await evaluate("document.querySelectorAll('.store-card').length===0 && document.querySelector('#retailer-count').textContent==='No grocery planning stores found \u00b7 4 SNAP retailers nearby. Try a larger radius or view all SNAP retailers.' && document.querySelector('#status').textContent.includes('4 SNAP-authorized retailers')"),'No suitable candidates is distinguished from no SNAP retailers');
   await click('[name=retailer_filter][value=all]');
   check(await evaluate("document.querySelectorAll('.store-card').length===4 && !NutriCartStore.get()"),'All SNAP view retains limited and unknown stores without choosing one');
   await evaluate("window.fixtureStores=null;window.fixtureTypes=[];window.fixtureNames=[];window.fixtureCount=2");
@@ -621,12 +632,96 @@ try {
   check(await evaluate("document.querySelector('#meal-completion-title').textContent==='Your plan is ready!' && document.querySelector('#meal-plan-another').textContent==='Plan Another Grocery Trip' && document.querySelector('#meal-back-to-basket').textContent==='Back to Grocery Basket'"),'Meal Plan ends with clear completion actions');
   await layout('#meal-plan-view','generated-meals');
   check(await evaluate("[...document.querySelectorAll('#meal-plan-view h1')].filter(h=>h.getClientRects().length).length===1 && document.querySelector('#meal-plan-title').previousElementSibling.textContent==='Step 4 of 4' && document.querySelector('#meal-back-to-budget').textContent==='Back to Shopping Budget'"),'Generated meals are the final workflow step');
+  async function verifyNewTripFlow(planData, mealData, signedIn = false) {
+    const prefix = signedIn ? 'Signed-in' : 'Guest';
+    const inspectTrip = () => evaluate("(()=>{let budget;document.addEventListener('nutricart:budget-state',event=>{event.stopImmediatePropagation();budget=event.detail},{once:true,capture:true});document.dispatchEvent(new Event('nutricart:request-budget-state'));return {plan:NutriCartPlanState.get(),budget,location:NutriCartLocation.get(),store:NutriCartStore.get(),address:document.querySelector('#address').value,user:document.querySelector('#account-button-label').textContent}})()");
+    const initial = await inspectTrip();
+    await evaluate(`window.__trip83Plan=${JSON.stringify(planData)};window.__trip83Meal=${JSON.stringify(mealData)};window.__trip83Budget=${JSON.stringify(initial.budget)};window.__trip83OriginalFetch=window.fetch;window.__trip83SaveMode='fail';window.__trip83Pending='';window.__trip83Writes=[];window.__trip83Cloud=JSON.stringify([{id:'existing-plan',data:window.__trip83Plan}]);window.fetch=(input,options={})=>{const endpoint=String(input);const reply=(body,status=200)=>Promise.resolve(new Response(JSON.stringify(body),{status,headers:{'Content-Type':'application/json'}}));if(endpoint==='/api/geocode')return reply({latitude:35.35,longitude:-80.72,planning_location:window.__trip83Plan.context.location||{locality:'Public fixture',region:'NC'}});if(endpoint==='/api/snap-retailers'){const store=window.__trip83Plan.context.selected_store||{};return reply({retailers:[{record_id:store.record_id||'trip83-full',store_name:store.source_name||store.name||'Fixture Grocery Market',store_type:'Supermarket',street_address:store.street_address||'Public fixture road',city:store.city||'Public fixture',state:store.region||'NC',zip_code:store.zip_code||'28027',distance_miles:1},{record_id:'trip83-unknown',store_name:'Fixture Unknown Assortment',store_type:'',street_address:'Public fixture road',city:'Public fixture',state:'NC',distance_miles:2}]});}if(endpoint==='/api/saved-items'&&options.method==='POST'){window.__trip83Writes.push({method:'POST',body:JSON.parse(options.body)});if(window.__trip83SaveMode==='pending')return new Promise(resolve=>window.__trip83SaveResolve=resolve);return window.__trip83SaveMode==='fail'?reply({error:'Synthetic save failure'},503):reply({item:{id:'new-trip83-save'}},201);}if((window.__trip83Pending==='grocery'&&endpoint==='/api/grocery-plan/alternative')||(window.__trip83Pending==='meal'&&endpoint==='/api/meal-plan'))return new Promise(resolve=>{window.__trip83Resolve=resolve;window.__trip83Signal=options.signal;});if(endpoint.startsWith('/api/saved-items')&&['PATCH','DELETE'].includes(options.method)){window.__trip83Writes.push({method:options.method});throw new Error('Unexpected saved-record modification');}return window.__trip83OriginalFetch(input,options);};`);
+    async function restoreTrip() {
+      await click('#snap-tab');
+      await fill({address:initial.address||'Public test fixture'});await click('#address-button');
+      await until(()=>evaluate("!document.querySelector('#address-button').disabled && !!document.querySelector('[name=snap_store]')"),'Task 83 fixture search');
+      await click('[name=retailer_filter][value=suitable]');await click('[name=snap_store][value="0"]');
+      await evaluate("window.__trip83Plan.context={...window.__trip83Plan.context,location:NutriCartLocation.get(),selected_store:NutriCartStore.get()};document.dispatchEvent(new CustomEvent('nutricart:open-saved-plan',{detail:{data:window.__trip83Plan,updated_at:'2026-01-01T00:00:00Z'}}))");
+      await until(()=>evaluate("!document.querySelector('#planner-view').hidden && !document.querySelector('.reveal-sequence')"),'Task 83 basket restored');
+      await evaluate("document.dispatchEvent(new CustomEvent('nutricart:open-saved-shopping',{detail:{id:'existing-trip83-session',data:window.__trip83Budget}}))");
+      await until(()=>evaluate("!document.querySelector('#shopping-budget-view').hidden && !document.querySelector('.reveal-sequence')"),'Task 83 shopping restored');
+      await evaluate("document.dispatchEvent(new CustomEvent('nutricart:open-saved-meal',{detail:{data:{mealPlan:window.__trip83Meal,groceries:window.__trip83Plan.result.groceries,context:window.__trip83Plan.context}}}))");
+      await until(()=>evaluate("!document.querySelector('#meal-plan-view').hidden && !document.querySelector('.reveal-sequence')"),'Task 83 meals restored');
+    }
+    await restoreTrip();
+    const before = await inspectTrip();
+    await click('#meal-plan-another');
+    check(await evaluate("document.querySelector('#new-trip-dialog').open && document.activeElement.id==='new-trip-cancel' && document.querySelector('#new-trip-dialog').getAttribute('aria-describedby')==='new-trip-message' && document.querySelector('#new-trip-warning').textContent==='Starting a new trip resets your current plan and shopping progress. Save your plan first if you want to keep it.'"),prefix+' new-trip warning and accessible confirmation are present');
+    for(const width of [1440,390,320])for(const size of ['normal','large','extra-large']){
+      await cdp('Emulation.setDeviceMetricsOverride',{width,height:850,deviceScaleFactor:1,mobile:width<500});await evaluate(`NutriCartSettings.setSetting('textSize',${JSON.stringify(size)})`);await delay(100);
+      check(await evaluate("(()=>{const dialog=document.querySelector('#new-trip-dialog'),r=dialog.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight&&dialog.scrollWidth<=dialog.clientWidth+1&&document.documentElement.scrollWidth<=innerWidth+1&&[...dialog.querySelectorAll('button')].every(button=>{const b=button.getBoundingClientRect();return b.width>=44&&b.height>=44&&b.left>=r.left&&b.right<=r.right})})()"),prefix+' new-trip dialog fits '+width+' '+size);
+      if(!signedIn&&size==='normal'&&width<500){const shot=await cdp('Page.captureScreenshot',{format:'png'});await writeFile(path.join(artifacts,'new-trip-dialog-'+width+'.png'),Buffer.from(shot.data,'base64'));}
+    }
+    await cdp('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});await evaluate("NutriCartSettings.setSetting('textSize','normal');document.querySelector('#new-trip-cancel').focus()");
+    await cdp('Input.dispatchKeyEvent',{type:'rawKeyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9,modifiers:8});await cdp('Input.dispatchKeyEvent',{type:'keyUp',key:'Tab',code:'Tab',windowsVirtualKeyCode:9,modifiers:8});
+    check(await evaluate("document.activeElement.id==='new-trip-confirm'"),prefix+' confirmation traps Shift Tab inside its three actions');
+    await cdp('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});await cdp('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});await delay(100);
+    check(await evaluate("!document.querySelector('#new-trip-dialog').open && document.activeElement.id==='meal-plan-another' && !document.body.classList.contains('new-trip-open')"),prefix+' Escape restores focus and body scrolling');
+    check(JSON.stringify(await inspectTrip())===JSON.stringify(before),prefix+' Escape preserves the complete working trip');
+    await click('#meal-plan-another');await click('#new-trip-cancel');
+    check(JSON.stringify(await inspectTrip())===JSON.stringify(before),prefix+' Cancel preserves basket purchases retailer and preferences');
+    await click('#meal-plan-another');await click('#new-trip-save');
+    check(await evaluate("!document.querySelector('#save-dialog').hidden && !document.querySelector('#new-trip-dialog').open"),prefix+' Save My Plan opens the existing save workflow');
+    if(signedIn){
+      await click('#save-confirm');await until(()=>evaluate("document.querySelector('#save-status').textContent.includes('Synthetic save failure')"),'Task 83 mocked save failure');
+      check(JSON.stringify(await inspectTrip())===JSON.stringify(before),'Failed save preserves the active signed-in trip');
+    }else{
+      check(await evaluate("!document.querySelector('#save-create-account').hidden && !document.querySelector('#save-sign-in').hidden && document.querySelector('#save-confirm').hidden"),'Guest Save My Plan preserves existing account options without pretending to save');
+    }
+    await click('#save-cancel');check(JSON.stringify(await inspectTrip())===JSON.stringify(before),prefix+' cancelling Save Your Plan does not start a new trip');
+    if(signedIn){
+      await evaluate("window.__trip83SaveMode='success'");await click('#meal-plan-another');await click('#new-trip-save');await click('#save-confirm');await until(()=>evaluate("document.querySelector('#save-dialog').hidden"),'Task 83 successful mocked save');
+      check(JSON.stringify(await inspectTrip())===JSON.stringify(before),'Successful save does not automatically reset or navigate');
+      await evaluate("window.__trip83SaveMode='pending';window.__trip83SaveResolve=null");
+      await click('#meal-plan-another');await click('#new-trip-save');await click('#save-confirm');
+      await until(()=>evaluate("!!window.__trip83SaveResolve"),'Task 83 delayed mocked save');
+      await click('#save-cancel');await click('#meal-plan-another');await click('#new-trip-save');
+      await evaluate("window.__trip83SaveResolve(new Response(JSON.stringify({item:{id:'cancelled-task83-save'}}),{status:201,headers:{'Content-Type':'application/json'}}));window.__trip83SaveMode='success'");await delay(800);
+      check(await evaluate("!document.querySelector('#save-dialog').hidden&&!document.querySelector('#save-confirm').disabled"),'A cancelled save response cannot close or disable the next save dialog');
+      await click('#save-cancel');check(JSON.stringify(await inspectTrip())===JSON.stringify(before),'Cancelling an in-flight save preserves the complete trip');
+    }
+    await click('#meal-plan-another');await click('#new-trip-confirm');
+    await until(()=>evaluate("!document.querySelector('.locator').hidden && !document.querySelector('.reveal-sequence')"),'Task 83 confirmed reset to Step 1');await delay(450);
+    const cleared=await inspectTrip();
+    check(!cleared.store&&cleared.plan.plannedItems.length===0&&cleared.budget.startingBudgetCents===0&&cleared.budget.purchases.length===0&&cleared.budget.shoppingItems.length===0,prefix+' confirmation clears only current basket and shopping ledger');
+    check(JSON.stringify(cleared.location)===JSON.stringify(before.location)&&cleared.address===before.address&&cleared.user===before.user,prefix+' reset preserves search address resolved location and account');
+    check(await evaluate("!NutriCartWorkflow.get().basketReady&&!NutriCartWorkflow.get().budgetReady&&!NutriCartWorkflow.get().storeReady&&document.querySelector('#meal-days').children.length===0&&document.querySelector('#meal-plan-results').hidden&&document.querySelector('#grocery-plan-loader').hidden&&!document.querySelector('[name=snap_store]:checked')"),prefix+' new trip clears meals loader selections and workflow locks');
+    check(await evaluate("!window.__trip83Writes.some(request=>['PATCH','DELETE'].includes(request.method))"),prefix+' reset never modifies or deletes existing saved records');
+    await click('[name=retailer_filter][value=all]');await click('[name=snap_store][value="1"]');await click('.store-planning-guidance button:last-child');
+    check(await evaluate("NutriCartStore.get().illustrative_plan_acknowledged===true"),prefix+' unknown-store acknowledgement remains explicit');
+    // The same explicit confirmation must clear an acknowledgement even without a basket.
+    await evaluate("document.querySelector('#meal-plan-another').click()");await click('#new-trip-confirm');await delay(550);
+    check(await evaluate("!NutriCartStore.get()&&!NutriCartWorkflow.get().storeReady"),prefix+' new trip clears temporary illustrative acknowledgement');
+    for(const kind of ['grocery','meal']){
+      await restoreTrip();await evaluate(`window.__trip83Pending=${JSON.stringify(kind)};window.__trip83Resolve=null`);
+      if(kind==='grocery'){await click('#planner-tab');await click('#alternative-plan');await until(()=>evaluate("!!window.__trip83Resolve"),'Task 83 pending grocery request');await click('#meal-plan-tab');}
+      else {await evaluate("document.dispatchEvent(new Event('nutricart:create-meal-plan'))");await until(()=>evaluate("!!window.__trip83Resolve"),'Task 83 pending meal request');}
+      await click('#meal-plan-another');await click('#new-trip-confirm');
+      check(await evaluate("window.__trip83Signal.aborted"),prefix+' reset aborts pending '+kind+' request');
+      await evaluate(`window.__trip83Resolve(new Response(JSON.stringify(${kind==='grocery'?'window.__trip83Plan.result':'window.__trip83Meal'}),{status:200,headers:{'Content-Type':'application/json'}}));window.__trip83Pending=''`);await delay(800);
+      check(await evaluate("NutriCartPlanState.get().plannedItems.length===0&&document.querySelector('#meal-days').children.length===0&&document.querySelector('#meal-plan-results').hidden&&document.querySelector('#grocery-plan-loader').hidden&&!document.querySelector('.locator').hidden"),prefix+' late '+kind+' response cannot restore a discarded trip');
+    }
+    await restoreTrip();
+    const navigationBefore=await inspectTrip();await click('#meal-back-to-basket');await click('#shopping-budget-tab');await click('#meal-plan-tab');
+    check(JSON.stringify(await inspectTrip())===JSON.stringify(navigationBefore),prefix+' ordinary Back and header navigation still preserve the working trip');
+    check(await evaluate("document.querySelector('#home-button svg path:last-child').getAttribute('d')==='m23 38 7 7 12-13'"),prefix+' approved basket-check logo remains unchanged');
+    await evaluate("window.fetch=window.__trip83OriginalFetch;delete window.__trip83OriginalFetch");
+  }
+
   const planBeforeCompletion=await evaluate("JSON.stringify(window.currentPlan)");
   await click('#meal-back-to-basket');await until(()=>evaluate("!document.querySelector('#planner-view').hidden"),'back to current basket');
   check(await evaluate("!document.querySelector('#plan-results').hidden"),'Back to Grocery Basket returns to the current basket');
   await click('#meal-plan-tab');await until(()=>evaluate("!document.querySelector('#meal-plan-results').hidden"),'return to generated meals');
-  await click('#meal-plan-another');await until(()=>evaluate("!document.querySelector('#planner-view').hidden && !document.querySelector('#planner-form').hidden"),'plan another grocery trip');
-  check(await evaluate(`${JSON.stringify(planBeforeCompletion)}===JSON.stringify(window.currentPlan) && document.querySelector('#plan-results').hidden && !!NutriCartStore.get()`),'Plan Another Grocery Trip opens the preserved planner inputs without resetting plan or retailer state');
+  await click('#meal-plan-another');
+  check(await evaluate("document.querySelector('#new-trip-dialog').open && document.activeElement.id==='new-trip-cancel'"),'Plan Another Grocery Trip asks for confirmation with Cancel focused');
+  await click('#new-trip-cancel');
+  check(await evaluate(`${JSON.stringify(planBeforeCompletion)}===JSON.stringify(window.currentPlan) && !document.querySelector('#meal-plan-results').hidden && !!NutriCartStore.get()`),'Cancelling a new trip preserves the basket, meals and retailer');
   await click('#meal-plan-tab');
   await click('#meal-back-to-budget');
   check(await evaluate("(()=>{const name=window.currentPlan.context.selected_store.name.trim(),label=document.querySelector('#budget-store-context');return !label.hidden && label.textContent==='Selected SNAP retailer: '+name && !label.textContent.includes(window.currentPlan.context.location?.locality||'__no_locality__')})()"),'Shopping Budget labels the selected SNAP retailer without a locality fallback');
@@ -660,7 +755,10 @@ try {
   await cdp('Emulation.setDeviceMetricsOverride',{width:390,height:1000,deviceScaleFactor:1,mobile:true});
   await cdp('Emulation.setTouchEmulationEnabled',{enabled:true,maxTouchPoints:1});
   await evaluate("document.querySelector('[data-shopping-check]').scrollIntoView({behavior:'instant',block:'center'});new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))");
-  const touch=await until(()=>evaluate("(()=>{const n=document.querySelector('[data-shopping-check]'),r=n.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;return !n.checked&&!n.disabled&&document.elementFromPoint(x,y)===n?{x,y}:false})()"),'unchecked mobile checkbox hit target');
+  const touch=await until(async()=>{
+    await evaluate("document.querySelector('[data-shopping-check]').scrollIntoView({behavior:'instant',block:'center'});new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))");
+    return evaluate("(()=>{const n=document.querySelector('[data-shopping-check]'),r=n.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;return !n.checked&&!n.disabled&&document.elementFromPoint(x,y)===n?{x,y}:false})()");
+  },'unchecked mobile checkbox hit target');
   await cdp('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[touch]});await cdp('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
   await until(async()=>{const budget=await state();return budget.purchases.length===1&&await evaluate("document.querySelector('[data-shopping-check]').checked");},'single touch updates purchase ledger');
   check((await state()).purchases.length===1,'Mobile touch marks purchased');
@@ -731,6 +829,7 @@ try {
   const logos=await cdp('Page.captureScreenshot',{format:'png'});await writeFile(path.join(artifacts,'logo-sizes.png'),Buffer.from(logos.data,'base64'));
   check(await evaluate("[...document.querySelectorAll('#logo-review [data-logo-background]')].every(row=>[...row.querySelectorAll('svg')].map(s=>s.getBoundingClientRect().width).join(',')==='16,32,38,48,128')"),'SVG rendered at 16, 32, 38, 48 and 128 pixels on cream, white and pale green');
   await evaluate("document.querySelector('#logo-review').remove()");
+  await verifyNewTripFlow(JSON.parse(planBeforeCompletion),await evaluate('window.generatedMealPlan'));
   if (!externalUrl) {
     const stopped=once(server,'exit');server.kill();await Promise.race([stopped,delay(5000)]);
     server=spawn(pythonPath,["-B","-m","flask","--app","app","run","--host","127.0.0.1","--port",String(port),"--no-reload"],{
@@ -840,6 +939,7 @@ try {
     await evaluate("document.dispatchEvent(new CustomEvent('nutricart:open-saved-shopping',{detail:{id:'saved-session',data:{startingBudgetCents:10000,purchases:[{item:'Saved purchase',store:'',costCents:250,planned:false,estimated:false}],shoppingItems:[]}}}))");await delay(350);
     await evaluate("document.dispatchEvent(new CustomEvent('nutricart:open-saved-meal',{detail:{data:{context:window.__task73RestoredPlan.context,groceries:window.__task73RestoredPlan.result.groceries,mealPlan:{days_requested:1,rotation_days:1,repeats:false,days:[{day:1,meals:[{meal_type:'breakfast',title:'Saved meal',products:[]}],nutrition:{}}]}}}}))");await delay(350);
     check(await evaluate("!document.querySelector('#meal-plan-results').hidden && document.querySelector('#purchase-count').textContent==='1 item'"),'Restored Meal Plan and shopping session are visible before sign-out');
+    await verifyNewTripFlow(await evaluate('window.__task73RestoredPlan'),{days_requested:1,rotation_days:1,repeats:false,days:[{day:1,meals:[{meal_type:'breakfast',title:'Saved meal',products:[]}],nutrition:{}}]},true);
     await evaluate("window.__accountRealFetch=window.fetch;window.fetch=(input,options={})=>String(input).endsWith('/api/account/logout')?Promise.resolve(new Response(JSON.stringify({signed_out:true}),{status:200,headers:{'Content-Type':'application/json'}})):window.__accountRealFetch(input,options)");
     await click('#account-button');await click('#account-menu-sign-out');
     await until(()=>evaluate("document.querySelector('#account-button-label').textContent==='Sign In' && !document.querySelector('#home').hidden && document.querySelector('.locator').hidden && document.activeElement.id==='planner-title'"),'successful sign-out navigation');
