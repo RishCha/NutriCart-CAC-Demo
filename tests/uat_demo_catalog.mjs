@@ -193,7 +193,7 @@ try {
   }
   await evaluate("NutriCartSettings.setSetting('cursorEffects',false);document.addEventListener('nutricart:plan-updated',e=>window.currentPlan={context:e.detail.context,result:e.detail.result})");
   check(await evaluate("document.querySelectorAll('.hero-actions button').length===1 && document.querySelector('#hero-find-snap').textContent===\"Let's get started\""),'Home unchanged');
-  check(await evaluate("(()=>{const logos=[document.querySelector('#home-button svg'),document.querySelector('.footer-brand svg')];return logos.every(logo=>logo&&logo.querySelector('#shopping-cart-symbol .cart-handle')&&logo.querySelector('.cart-basket')&&logo.querySelector('.cart-slats')&&logo.querySelectorAll('.cart-wheel').length===2)&&document.querySelector('link[rel=icon]').href.includes('shopping-cart-symbol')})()"),'Transparent shopping-cart logo is shared by header footer and favicon');
+  check(await evaluate("(async()=>{const logos=[document.querySelector('#home-button svg'),document.querySelector('.footer-brand svg')],favicon=await (await fetch(document.querySelector('link[rel=icon]').href)).text();return logos.every(logo=>logo&&logo.querySelector('g').getAttribute('stroke')==='#194f38'&&logo.querySelectorAll('path').length===3&&logo.querySelector('path:last-child').getAttribute('d')==='m23 38 7 7 12-13'&&!logo.querySelector('circle')&&logo.getAttribute('aria-hidden')==='true')&&new DOMParser().parseFromString(favicon,'image/svg+xml').documentElement.isEqualNode(logos[0])})()"),'Approved transparent basket and check logo is shared by header footer and favicon');
   for(const [width,size] of [[1440,'normal'],[390,'extra-large'],[320,'extra-large']]) {
     await cdp('Emulation.setDeviceMetricsOverride',{width,height:800,deviceScaleFactor:1,mobile:width<=390});
     await evaluate(`NutriCartSettings.setSetting('textSize',${JSON.stringify(size)})`);await delay(100);
@@ -855,6 +855,7 @@ try {
     check(await evaluate("window.__signOutEvents===0 && document.querySelector('#account-status').textContent==='Sign out failed. Please try again.' && !document.querySelector('#account-user-panel').hidden && !document.querySelector('#home').hidden"),'Failed sign-out preserves the signed-in user and current Home view');
     await evaluate("window.fetch=window.__accountRealFetch;delete window.__accountRealFetch");await click('#account-close');
     await cdp('Page.navigate',{url:url+'/reset-password'});await until(()=>evaluate("document.readyState==='complete' && Boolean(window.NutriCartPasswords)"),'reset-password scripts');
+    check(await evaluate("(async()=>{const logo=document.querySelector('.brand-mark svg'),favicon=await (await fetch(document.querySelector('link[rel=icon]').href)).text();return new DOMParser().parseFromString(favicon,'image/svg+xml').documentElement.isEqualNode(logo)&&logo.querySelector('path:last-child').getAttribute('d')==='m23 38 7 7 12-13'&&document.querySelector('a.brand').getAttribute('href')==='/'})()"),'Reset Password shares approved logo and favicon and retains Home link');
     for(const width of [390,320]) {
       await cdp('Emulation.setDeviceMetricsOverride',{width,height:800,deviceScaleFactor:1,mobile:true});
       await evaluate("(()=>{const input=document.querySelector('#reset-new-password');input.value='RiverMarket2026!Fresh';input.dispatchEvent(new Event('input',{bubbles:true}))})()");

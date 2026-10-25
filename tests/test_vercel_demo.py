@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from unittest.mock import patch
 
 import app
@@ -85,25 +86,45 @@ class VercelDemoTests(unittest.TestCase):
         self.assertNotIn('document.querySelector(".app-settings-utility").hidden', (ROOT / "static" / "account.js").read_text(encoding="utf-8"))
         self.assertIn("styles.css?v=retailer-policy-81", page)
 
-    def test_shared_brand_logo_is_a_transparent_shopping_cart(self):
+    def test_shared_brand_logo_is_the_approved_smart_grocery_basket(self):
         logo = (ROOT / "templates" / "nutricart-logo.svg").read_text(encoding="utf-8").strip()
         page = self.client.get("/").text
         reset = self.client.get("/reset-password").text
-        self.assertIn('viewBox="0 0 64 64"', logo)
-        self.assertIn('id="shopping-cart-symbol"', logo)
-        self.assertIn('class="cart-handle"', logo)
-        self.assertIn('class="cart-basket"', logo)
-        self.assertIn('class="cart-slats"', logo)
-        self.assertEqual(logo.count('class="cart-wheel"'), 2)
-        self.assertIn('stroke="#194f38"', logo)
-        self.assertNotIn('id="basket-symbol"', logo)
-        self.assertNotIn('class="basket-handle"', logo)
-        self.assertNotIn("leaf", logo.lower())
-        self.assertNotIn("<rect", logo)
-        self.assertNotRegex(logo, r'<(?:svg|g)[^>]+fill="#194f38"')
+        svg = ET.fromstring(logo)
+        self.assertEqual(svg.attrib["viewBox"], "0 0 64 64")
+        self.assertEqual(svg.attrib["aria-hidden"], "true")
+        self.assertEqual(svg.attrib["focusable"], "false")
+        group = svg.find("{http://www.w3.org/2000/svg}g")
+        self.assertEqual(group.attrib["fill"], "none")
+        self.assertEqual(group.attrib["stroke"], "#194f38")
+        self.assertEqual(len(group), 3)  # Handle, basket and integrated selection check.
+        self.assertEqual(group[-1].attrib["d"], "m23 38 7 7 12-13")
+        for element in svg.iter():
+            self.assertIn(element.tag.split("}")[-1], {"svg", "g", "path"})
+            self.assertFalse(any(key.lower().startswith("on") or "href" in key for key in element.attrib))
+        for old_detail in ("shopping-cart-symbol", "cart-wheel", "cart-slats", "leaf"):
+            self.assertNotIn(old_detail, logo.lower())
         self.assertEqual(page.count(logo), 2)
-        self.assertIn(logo, reset)
+        self.assertEqual(reset.count(logo), 1)
+        for rendered in (page, reset):
+            self.assertIn('href="/favicon.svg?v=smart-basket-82"', rendered)
+            favicon = self.client.get("/favicon.svg?v=smart-basket-82")
+            self.assertEqual(favicon.status_code, 200)
+            self.assertEqual(favicon.mimetype, "image/svg+xml")
+            self.assertEqual(favicon.text.strip(), logo)
+            self.assertIn('aria-label="NutriCart', rendered)
+            self.assertIn("<strong>NutriCart</strong>", rendered)
         self.assertIn("templates/nutricart-logo.svg", (ROOT / "RELEASE_MANIFEST.txt").read_text(encoding="utf-8"))
+
+    def test_shared_favicon_preserves_reset_page_security_and_revalidates(self):
+        reset = self.client.get("/reset-password")
+        self.assertEqual(reset.headers["Content-Security-Policy"],
+                         "default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+        self.assertNotIn("data:image/svg+xml", reset.text)
+        favicon = self.client.get("/favicon.svg?v=smart-basket-82")
+        self.assertEqual(favicon.headers["Cache-Control"], "public, max-age=0, must-revalidate")
+        self.assertNotIn("Set-Cookie", favicon.headers)
+
     def test_planner_uses_friendly_people_and_days_validation(self):
         script = (ROOT / "static" / "grocery.js").read_text(encoding="utf-8")
         page = self.client.get("/").text

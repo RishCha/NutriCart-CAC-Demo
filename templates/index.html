@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>NutriCart</title>
   {% set brand_icon %}{% include "nutricart-logo.svg" %}{% endset %}
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,{{ brand_icon|urlencode }}">
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('favicon', v='smart-basket-82') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='retailer-policy-81') }}">
 </head>
 <body>

@@ -671,6 +671,14 @@ def _feasibility_error(error: _PlanningFeasibilityError):
     return jsonify({"error": str(error), **error.details}), 422
 
 
+@app.get("/favicon.svg")
+def favicon():
+    # Render the shared mark from this origin so strict reset-page CSP stays intact.
+    response = app.response_class(render_template("nutricart-logo.svg"), mimetype="image/svg+xml")
+    response.headers["Cache-Control"] = "public, max-age=0, must-revalidate"
+    return response
+
+
 @app.get("/")
 def index():
     return render_template(
