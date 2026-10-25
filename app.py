@@ -33,6 +33,7 @@ from optimize_grocery import (
     solve_plan,
     summarize_plan,
 )
+from retailer_policy import retailer_policy, planning_allowed, planning_suitability, LIMITED_MESSAGE, UNKNOWN_MESSAGE
 from snap_store_locator import find_snap_retailers, geocode_address, reverse_geocode_coordinates
 
 
@@ -441,6 +442,13 @@ def _planning_values(payload: dict, require_exclusions: bool = False) -> tuple[d
         location = planning_location(payload.get("location"))
     except ValueError as error:
         raise _PlanningValidationError(str(error)) from error
+    store = payload.get("selected_store")
+    if store is not None and not planning_allowed(store):
+        category = planning_suitability(store.get("store_type") if isinstance(store, dict) else None)["category"]
+        raise _PlanningValidationError(
+            UNKNOWN_MESSAGE if category == "unknown" else LIMITED_MESSAGE,
+            retailer_planning_blocked=True,
+        )
     budget = _planner_number(payload.get("budget"), "Budget", 10)
     people = _planner_integer(payload.get("people"), "People", 1, 20)
     days = _planner_integer(payload.get("days"), "Days", 1, 31)
@@ -670,6 +678,7 @@ def index():
         account_user=_current_account_user(),
         accounts_enabled=app.config["ACCOUNTS_ENABLED"],
         current_year=datetime.now(timezone.utc).year,
+        retailer_policy=retailer_policy(),
     )
 
 
@@ -1033,6 +1042,7 @@ def snap_retailers():
         results = [{key: store.get(key) for key in (
             "record_id", "store_name", "display_name", "store_type", "distance_miles", "street_address",
             "additional_address", "city", "state", "zip_code", "incentive_program",
+            "name_resolution", "planning_suitability",
         )} for store in stores]
         return jsonify({"retailers": results, "safety_cap_reached": bool(getattr(stores, "safety_cap_reached", False))})
     except ValueError as error:

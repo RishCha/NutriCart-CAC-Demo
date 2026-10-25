@@ -215,7 +215,7 @@ class ShoppingBudgetPageTests(unittest.TestCase):
         self.assertIn("budgetStoreContext.hidden = !storeName", renderer)
         self.assertNotIn("locality", renderer)
         self.assertNotIn("Shopping at", renderer)
-        self.assertIn("Basket items are planning suggestions. Prices and product availability vary by retailer and location.", self.page)
+        self.assertIn("Illustrative grocery selections and prices. Availability at the selected store has not been verified.", self.page)
         self.assertNotIn("Prices are recently observed retailer prices", self.page)
         opened = self.script.split('document.addEventListener("nutricart:budget-opened"', 1)[1].split('document.addEventListener("nutricart:plan-updated"', 1)[0]
         updated = self.script.split('document.addEventListener("nutricart:plan-updated"', 1)[1].split('querySelector("#create-grocery-plan")', 1)[0]

@@ -83,7 +83,7 @@ class VercelDemoTests(unittest.TestCase):
         self.assertIn(".settings-icon { display: block; flex: 0 0 20px; width: 20px; height: 20px; }", styles)
         self.assertIn('<div class="app-settings-utility">', page)
         self.assertNotIn('document.querySelector(".app-settings-utility").hidden', (ROOT / "static" / "account.js").read_text(encoding="utf-8"))
-        self.assertIn("styles.css?v=store-progress-79a", page)
+        self.assertIn("styles.css?v=retailer-policy-81", page)
 
     def test_shared_brand_logo_is_a_transparent_shopping_cart(self):
         logo = (ROOT / "templates" / "nutricart-logo.svg").read_text(encoding="utf-8").strip()
@@ -112,8 +112,8 @@ class VercelDemoTests(unittest.TestCase):
         self.assertIn("NutriCart supports plans for 1–31 days.", script)
         self.assertNotIn("People must be a whole number from 1 to 20.", script)
         self.assertNotIn("Days must be a whole number from 1 to 31.", script)
-        self.assertIn('filename=\'grocery.js\', v=\'store-progress-79a\'', (ROOT / "templates" / "index.html").read_text(encoding="utf-8"))
-        self.assertIn("grocery.js?v=store-progress-79a", page)
+        self.assertIn('filename=\'grocery.js\', v=\'retailer-policy-81\'', (ROOT / "templates" / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("grocery.js?v=retailer-policy-81", page)
 
     def test_omnivore_value_is_displayed_as_non_vegetarian_everywhere(self):
         page = self.client.get("/").text
@@ -183,11 +183,11 @@ class VercelDemoTests(unittest.TestCase):
         self.assertNotIn("locationLabel", render)
         self.assertNotIn("context.location?.locality", render)
         page = self.client.get("/").text
-        self.assertIn("Basket items are planning suggestions. Prices and product availability vary by retailer and location.", page)
+        self.assertIn("Illustrative grocery selections and prices. Availability at the selected store has not been verified.", page)
         self.assertNotIn("Prices are recently observed retailer prices", page)
 
     def test_snap_retailer_display_names_are_readable_without_changing_source_names(self):
-        self.assertEqual(retailer_display_name("2701868.0 1868"), "SNAP retailer")
+        self.assertEqual(retailer_display_name("2701868.0 1868"), "Store name unavailable")
         self.assertEqual(retailer_display_name("  7-Eleven   #249238A "), "7-Eleven")
         self.assertEqual(retailer_display_name("7-eleven #41347a 41347A"), "7-Eleven")
         self.assertEqual(retailer_display_name("Circle K 1490"), "Circle K")
@@ -199,7 +199,7 @@ class VercelDemoTests(unittest.TestCase):
         for raw in (None, "", "   ", 2701868, "2701868.0 1868", "123 #456",
                     "SNAP-authorized retailer", "snap retailer"):
             with self.subTest(raw=raw):
-                self.assertEqual(retailer_display_name(raw), "SNAP retailer")
+                self.assertEqual(retailer_display_name(raw), "Store name unavailable")
 
     def test_snap_names_preserve_business_identity_and_repeated_suffixes(self):
         for raw, expected in (
@@ -217,13 +217,13 @@ class VercelDemoTests(unittest.TestCase):
         # Public USDA record checked during Task 79A: no usable business name.
         attributes = {"Record_ID": 1235424, "Store_Name": "2701868.0 1868",
                       "Store_Street_Address": "8855 Christenbury Pkwy", "City": "Concord",
-                      "State": "NC", "Store_Type": "Convenience Store",
+                      "State": "NC", "Zip_Code": "28027", "Store_Type": "Convenience Store",
                       "Latitude": 35, "Longitude": -80}
         with patch("snap_store_locator.request_json", return_value={
                 "features": [{"attributes": attributes}], "exceededTransferLimit": False}):
             stores = find_snap_retailers(35, -80)
         self.assertEqual(len(stores), 1)
-        self.assertEqual(stores[0]["display_name"], "SNAP retailer")
+        self.assertEqual(stores[0]["display_name"], "Circle K")
         self.assertEqual(stores[0]["store_name"], attributes["Store_Name"])
         with patch.object(app, "find_snap_retailers", return_value=stores):
             response = self.client.post("/api/snap-retailers", json={"latitude": 35, "longitude": -80, "radius_miles": 5})
@@ -232,7 +232,7 @@ class VercelDemoTests(unittest.TestCase):
         for api_key, source_key in (("record_id", "Record_ID"), ("store_name", "Store_Name"),
                                     ("street_address", "Store_Street_Address"), ("store_type", "Store_Type")):
             self.assertEqual(store[api_key], attributes[source_key])
-        self.assertEqual(store["display_name"], "SNAP retailer")
+        self.assertEqual(store["display_name"], "Circle K")
         self.assertEqual(store["distance_miles"], 0)
 
     def test_snap_api_keeps_duplicate_chain_locations_and_raw_source_names(self):
@@ -305,7 +305,7 @@ class VercelDemoTests(unittest.TestCase):
         self.assertIn("width: min(100%, 760px)", styles)
         self.assertIn("#meal-plan-ready .primary", styles)
         self.assertNotIn("min-height: 330px", styles.split("/* Compact unlocked Meal Plan action state. */", 1)[1])
-        self.assertIn("styles.css?v=store-progress-79a", page)
+        self.assertIn("styles.css?v=retailer-policy-81", page)
 
     def test_feedback_modal_has_optional_two_stage_actions(self):
         page = self.client.get("/").text

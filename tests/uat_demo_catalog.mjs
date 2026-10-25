@@ -17,7 +17,7 @@ const edgePath = process.env.EDGE_PATH || "C:\\Program Files (x86)\\Microsoft\\E
 assert(existsSync(edgePath), "Set EDGE_PATH to your installed Microsoft Edge executable.");
 const pythonPath = path.join(root, ".venv", "Scripts", "python.exe");
 const runtime = await mkdtemp(path.join(tmpdir(), "nutricart-location-planning-"));
-const artifacts = path.join(root, "instance", "release-review");
+const artifacts = path.join(root, "instance", process.env.NUTRICART_UAT_ARTIFACTS || "release-review");
 await mkdir(artifacts, {recursive: true});
 const profile = path.join(runtime, "edge-profile");
 let edge, server, socket;
@@ -365,7 +365,7 @@ try {
   await evaluate(`window.realFetch=window.fetch;window.fixtureCount=0;window.fixtureNames=[];window.fixtureGeocodeFail=false;window.fetch=(url,opts)=>{
     if(url==='/api/geocode' && window.fixtureGeocodeFail)return Promise.resolve(new Response(JSON.stringify({error:'Address could not be found.'}),{status:400}));
     if(url==='/api/geocode')return Promise.resolve(new Response(JSON.stringify({latitude:61.2181,longitude:-149.9003,matched_address:'Public test fixture',planning_location:{locality:'Anchorage',region:'AK'}}),{status:200}));
-    if(url==='/api/snap-retailers')return Promise.resolve(new Response(JSON.stringify({retailers:Array.from({length:window.fixtureCount},(_,i)=>({record_id:'fixture-'+i,store_name:window.fixtureNames[i]||'Fixture store '+(i+1),city:'Anchorage',state:'AK',street_address:'Test street '+(i+1),distance_miles:i+1}))}),{status:200}));
+    if(url==='/api/snap-retailers')return Promise.resolve(new Response(JSON.stringify({retailers:window.fixtureStores||Array.from({length:window.fixtureCount},(_,i)=>({record_id:'fixture-'+i,store_name:window.fixtureNames[i]||'Fixture store '+(i+1),store_type:window.fixtureTypes?.[i]||'Supermarket',city:'Anchorage',state:'AK',street_address:'Test street '+(i+1),distance_miles:i+1}))}),{status:200}));
     return window.realFetch(url,opts);
   }`);
   for(const count of [0,1,2]) {
@@ -373,13 +373,61 @@ try {
     check(await evaluate(`document.querySelectorAll('[name=snap_store]').length===${count} && !document.querySelector('#snap-build-basket') && !NutriCartStore.get()`),'Fixture '+count+' results require explicit choice');
     if(count) {await click('[name=snap_store]');check(await evaluate("!!NutriCartStore.get() && !!document.querySelector('#snap-build-basket')"),'Fixture '+count+' selection enables continuation');}
   }
-  await evaluate("window.fixtureNames=['2701868.0 1868','7-eleven #41347a 41347A','99 Ranch Market','Circle K 1490'];window.fixtureCount=4");await fill({address:'Public test fixture'});await click('#address-button');
-  check(await evaluate("JSON.stringify([...document.querySelectorAll('.store-card h3')].map(n=>n.textContent))===JSON.stringify(['SNAP retailer','7-Eleven','99 Ranch Market','Circle K'])"),'Retailer labels normalize numeric records, repeated identifiers, and terminal store numbers');
+  await evaluate("window.fixtureNames=['2701868.0 1868','7-eleven #41347a 41347A','99 Ranch Market','Circle K 1490'];window.fixtureCount=4;window.fixtureTypes=['Convenience Store','Convenience Store','Supermarket','Convenience Store']");await fill({address:'Public test fixture'});await click('#address-button');
+  await click('[name=retailer_filter][value=all]');
+  check(await evaluate("JSON.stringify([...document.querySelectorAll('.store-card h3')].map(n=>n.textContent))===JSON.stringify(['Store name unavailable','7-Eleven','99 Ranch Market','Circle K'])"),'Retailer labels normalize numeric records, repeated identifiers, and terminal store numbers');
   check(await evaluate("document.querySelectorAll('.store-card').length===4 && [...document.querySelectorAll('.store-card')].map(card=>card.textContent.match(/Test street \\d/)?.[0]).filter(Boolean).length===4"),'Duplicate chain locations remain separate and distinguishable by address');
   await click('[name=snap_store][value="1"]');
   check(await evaluate("NutriCartStore.get().name==='7-Eleven' && NutriCartStore.get().source_name==='7-eleven #41347a 41347A'"),'Selected retailer keeps a clean display name and preserved source name');
-  check(await evaluate("NutriCartStore.displayName({store_name:'7-eleven #41347a 41347A',display_name:'SNAP-authorized retailer'})==='7-Eleven' && NutriCartStore.displayName({display_name:'SNAP-authorized retailer'})==='SNAP retailer' && NutriCartStore.displayName({store_name:null})==='SNAP retailer' && NutriCartStore.displayName({source_name:'Circle K 1490 1490'})==='Circle K'"),'Raw business names override stale generic labels; blank and legacy names use SNAP retailer');
-  await evaluate("window.fixtureNames=[];window.fixtureCount=2");
+  check(await evaluate("NutriCartStore.displayName({store_name:'7-eleven #41347a 41347A',display_name:'SNAP-authorized retailer'})==='7-Eleven' && NutriCartStore.displayName({display_name:'SNAP-authorized retailer'})==='Store name unavailable' && NutriCartStore.displayName({store_name:null})==='Store name unavailable' && NutriCartStore.displayName({source_name:'Circle K 1490 1490'})==='Circle K'"),'Raw business names override stale generic labels; blank and legacy names use Store name unavailable');
+  check(await evaluate("!NutriCartWorkflow.get().storeReady && !document.querySelector('#snap-build-basket') && document.querySelector('.store-planning-guidance h4').textContent==='Limited grocery selection'"),'Named convenience selection cannot unlock complete household planning');
+  const policyFixtures = [
+    {record_id:1235424,store_name:'2701868.0 1868',street_address:'8855 Christenbury Pkwy',city:'Concord',state:'NC',zip_code:'28027',store_type:'Convenience Store'},
+    {record_id:'full',store_name:'99 Ranch Market',street_address:'10 Public Street',city:'Concord',state:'NC',zip_code:'28027',store_type:'Supermarket'},
+    {record_id:'specialty',store_name:'Public Bakery',street_address:'12 Public Street',city:'Concord',state:'NC',zip_code:'28027',store_type:'BB'},
+    {record_id:'unknown',store_name:'Public Cooperative',street_address:'14 Public Street',city:'Concord',state:'NC',zip_code:'28027',store_type:''},
+    {record_id:1235425,store_name:'2701868.0 1868',street_address:'8820 Christenbury Pkwy',city:'Concord',state:'NC',zip_code:'28027',store_type:'CS'},
+  ];
+  await evaluate(`window.fixtureStores=${JSON.stringify(policyFixtures)}`);await fill({address:'Public test fixture'});await click('#address-button');
+  await click('[name=retailer_filter][value=suitable]');
+  check(await evaluate("document.querySelectorAll('.store-card').length===1 && document.querySelector('.store-card h3').textContent==='99 Ranch Market' && document.querySelector('#retailer-count').textContent==='1 of 1 planning candidates shown \u00b7 5 SNAP retailers found' && !NutriCartStore.get()"),'Default planning filter retains raw count and never auto-selects');
+  await click('[name=retailer_filter][value=all]');
+  check(await evaluate("document.querySelectorAll('.store-card').length===5 && document.querySelector('.store-card h3').textContent==='Circle K' && document.querySelectorAll('.store-card h3')[4].textContent==='Store name unavailable' && document.querySelectorAll('.store-card')[4].textContent.includes('SNAP-authorized retailer')"),'Verified Circle K mapping is exact; nearby numeric record remains transparently unresolved');
+  await click('[name=snap_store][value="0"]');
+  check(await evaluate("NutriCartStore.get().name==='Circle K' && NutriCartStore.get().source_name==='2701868.0 1868' && NutriCartStore.get().record_id===1235424 && !NutriCartWorkflow.get().storeReady && !document.querySelector('#snap-build-basket')"),'Circle K keeps its USDA identity and cannot present a full basket as available');
+  await click('#planner-tab');
+  check(await evaluate("document.querySelector('#planner-form').hidden && document.querySelector('#planner-locked-title').textContent==='Limited grocery selection' && document.querySelector('#set-planning-location').textContent==='Find a Grocery Store'"),'Direct navigation respects the selected-store suitability gate');
+  await click('#set-planning-location');
+  check(await evaluate("!document.querySelector('.locator').hidden && document.querySelector('[name=retailer_filter][value=suitable]').checked && NutriCartStore.get().name==='Circle K' && NutriCartLocation.get().region==='AK'"),'Find a Grocery Store preserves resolved location and selection without silent substitution');
+  await click('[name=retailer_filter][value=all]');await click('[name=snap_store][value="2"]');
+  check(await evaluate("!NutriCartWorkflow.get().storeReady && document.querySelector('.store-planning-guidance h4').textContent==='Limited grocery selection' && document.querySelector('.store-planning-guidance button:last-child').hidden"),'Specialty retailer remains discoverable with conservative guidance');
+  await click('[name=snap_store][value="3"]');
+  check(await evaluate("!NutriCartWorkflow.get().storeReady && document.querySelector('.store-planning-guidance h4').textContent==='Grocery selection unknown' && !document.querySelector('.store-planning-guidance button:last-child').hidden && !document.querySelector('#snap-build-basket')"),'Unknown category requires explicit illustrative planning acknowledgement');
+  for(const width of [1440,390,320]) {
+    await cdp('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:width<=390});
+    await evaluate("document.documentElement.dataset.textSize='extra-large'");
+    await delay(180);
+    check(await evaluate("document.documentElement.scrollWidth<=innerWidth+1 && [...document.querySelectorAll('.retailer-filters label,.store-planning-guidance button')].filter(n=>n.getClientRects().length).every(n=>n.getBoundingClientRect().right<=innerWidth+1)"),'Retailer filters and guidance fit enlarged text at '+width);
+    await evaluate("document.querySelector('.store-card.is-selected').scrollIntoView({block:'center',behavior:'instant'})");await delay(150);
+    const guidanceShot=await cdp('Page.captureScreenshot',{format:'png'});await writeFile(path.join(artifacts,'retailer-guidance-'+width+'.png'),Buffer.from(guidanceShot.data,'base64'));
+  }
+  await evaluate("delete document.documentElement.dataset.textSize");
+  await cdp('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+  await click('[name=retailer_filter][value=suitable]');await click('#planner-tab');await click('#set-planning-location');
+  check(await evaluate("document.querySelector('[name=retailer_filter][value=all]').checked && document.querySelectorAll('[name=snap_store]')[3].checked && !document.querySelector('.store-planning-guidance button:last-child').hidden"),'Unknown-store review reveals its acknowledgement even after the selected card was filtered out');
+  await click('.store-planning-guidance button:last-child');
+  check(await evaluate("NutriCartStore.get().illustrative_plan_acknowledged===true && NutriCartWorkflow.get().storeReady && !!document.querySelector('#snap-build-basket') && document.activeElement.id==='snap-build-basket'"),'Explicit acknowledgement enables generic planning and moves focus to continuation');
+  await click('[name=retailer_filter][value=suitable]');await click('[name=retailer_filter][value=all]');
+  check(await evaluate("document.querySelectorAll('[name=snap_store]')[3].checked && NutriCartStore.get().illustrative_plan_acknowledged && !!document.querySelector('#snap-build-basket')"),'Filter toggling preserves explicit unknown selection and acknowledgement');
+  await click('[name=snap_store][value="0"]');
+  check(await evaluate("!NutriCartWorkflow.get().storeReady && !NutriCartStore.get().illustrative_plan_acknowledged"),'Acknowledgement never transfers to a different retailer category');
+  await evaluate("window.fixtureStores=window.fixtureStores.filter(store=>store.store_type!=='Supermarket')");
+  await fill({address:'Public test fixture'});await click('#address-button');await click('[name=retailer_filter][value=suitable]');
+  check(await evaluate("document.querySelectorAll('.store-card').length===0 && document.querySelector('#retailer-count').textContent==='No full-grocery planning stores were found in this search area. Try a larger radius or view all SNAP retailers.' && document.querySelector('#status').textContent.includes('4 SNAP-authorized retailers')"),'No suitable candidates is distinguished from no SNAP retailers');
+  await click('[name=retailer_filter][value=all]');
+  check(await evaluate("document.querySelectorAll('.store-card').length===4 && !NutriCartStore.get()"),'All SNAP view retains limited and unknown stores without choosing one');
+  await evaluate("window.fixtureStores=null;window.fixtureTypes=[];window.fixtureNames=[];window.fixtureCount=2");
+  await click('[name=retailer_filter][value=suitable]');
   check(await evaluate("!document.querySelector('#detected-location').hidden && document.querySelector('#snap-planning-location').textContent==='Anchorage, AK'"),'Manual address shows actual resolved location confirmation');
   await evaluate('window.fixtureGeocodeFail=true');await fill({address:'Invalid test address'});await click('#address-button');
   check(await evaluate("document.querySelector('#detected-location').hidden && !NutriCartStore.get() && !document.querySelector('#snap-build-basket') && document.querySelector('#status').textContent.includes('could not')"),'Failed geocoding clears success and selected retailer');
@@ -488,9 +536,17 @@ try {
     check(basketContext.store && basketContext.summary.startsWith(basketContext.store+' · ') && basketContext.summary.includes(diet.charAt(0).toUpperCase()+diet.slice(1)) && basketContext.summary.includes(people+' '+(people===1?'person':'people')) && basketContext.summary.includes(days+' '+(days===1?'day':'days')) && (!basketContext.location || !basketContext.summary.includes(basketContext.location)),diet+': basket summary uses the selected retailer without locality '+JSON.stringify(basketContext));
   }
   // Same real resolved location and nutrition settings for both diets.
-  await generate('vegan',500.45);check(await evaluate("window.currentPlan.result.groceries.every(p=>p.product_id.startsWith('demo-')) && document.querySelector('#grocery-list').textContent.length>0"),'Independent demo products only');check(await evaluate("document.querySelector('#receipt-price-source').textContent.includes('Example grocery prices') && document.querySelector('.basket-availability-note').textContent==='Basket items are planning suggestions. Prices and product availability vary by retailer and location.'"),'Synthetic price and product availability disclosure');await layout('#planner-view','vegan-basket');
+  await generate('vegan',500.45);check(await evaluate("window.currentPlan.result.groceries.every(p=>p.product_id.startsWith('demo-')) && document.querySelector('#grocery-list').textContent.length>0"),'Independent demo products only');check(await evaluate("document.querySelector('#receipt-price-source').textContent.includes('Example grocery prices') && document.querySelector('.basket-availability-note').textContent==='Illustrative grocery selections and prices. Availability at the selected store has not been verified.'"),'Synthetic price and product availability disclosure');await layout('#planner-view','vegan-basket');
   await click('#edit-plan');check(await evaluate("!document.querySelector('#planner-form').hidden && document.querySelector('#budget').value==='500.45'"),'Edit retains original form inputs');
   await click('#snap-tab');
+  await click('#planner-tab');
+  await evaluate("window.__lateStoreResult=structuredClone(window.currentPlan.result);window.__storeFetch=window.fetch;window.fetch=(url,options)=>url==='/api/grocery-plan'?new Promise(resolve=>{window.__lateStoreResolve=resolve;window.__lateStoreSignal=options.signal}):window.__storeFetch(url,options)");
+  await click('#review-plan');await click('#generate-plan');
+  await until(()=>evaluate("!!window.__lateStoreResolve && !document.querySelector('#grocery-plan-loader').hidden"),'pending plan before changing retailer');
+  await click('#snap-tab');await evaluate("[...document.querySelectorAll('[name=snap_store]')].find(radio=>!radio.checked).click()");
+  check(await evaluate("window.__lateStoreSignal.aborted && document.querySelector('#grocery-plan-loader').hidden && !NutriCartWorkflow.get().basketReady"),'Changing retailer aborts an in-flight generation and clears the previous basket');
+  await evaluate("window.__lateStoreResolve(new Response(JSON.stringify(window.__lateStoreResult),{status:200}));window.fetch=window.__storeFetch");await delay(800);
+  check(await evaluate("!NutriCartWorkflow.get().basketReady && document.querySelector('#plan-results').hidden"),'Late success from the previous retailer cannot resurrect a stale basket');
   const changedStore=await evaluate("(()=>{const before=NutriCartStore.get()?.name;const next=[...document.querySelectorAll('[name=snap_store]')].find(radio=>!radio.checked);next.click();return {before,after:NutriCartStore.get()?.name,basketReady:NutriCartWorkflow.get().basketReady}})()");
   check(changedStore.before && changedStore.after && changedStore.before!==changedStore.after && !changedStore.basketReady,'Selecting a different store clears the stale basket '+JSON.stringify(changedStore));
   await click('#snap-build-basket');
@@ -500,7 +556,7 @@ try {
   check(await evaluate("NutriCartWorkflow.get().basketReady && document.querySelector('#meal-plan-empty').hidden && !document.querySelector('#meal-plan-ready').hidden"),'$200 / 2 people / 10 days Vegetarian basket unlocks Meal Plan directly');
   await click('#planner-tab');
   await click('#snap-tab');
-  await evaluate("window.fetch=(url,opts)=>{if(url==='/api/geocode')return Promise.resolve(new Response(JSON.stringify({latitude:47.61,longitude:-122.33,matched_address:'Public retailer fixture',planning_location:{locality:'Longview',region:'WA'}}),{status:200}));if(url==='/api/snap-retailers')return Promise.resolve(new Response(JSON.stringify({retailers:[{record_id:'fixture-short',store_name:'Fixture Market',city:'Longview',state:'WA',street_address:'Public fixture street',distance_miles:1},{record_id:'fixture-long',store_name:'Northwest Community Market and Grocery Cooperative',city:'Longview',state:'WA',street_address:'Public fixture avenue',distance_miles:2}]}),{status:200}));return window.realFetch(url,opts)}");
+  await evaluate("window.fetch=(url,opts)=>{if(url==='/api/geocode')return Promise.resolve(new Response(JSON.stringify({latitude:47.61,longitude:-122.33,matched_address:'Public retailer fixture',planning_location:{locality:'Longview',region:'WA'}}),{status:200}));if(url==='/api/snap-retailers')return Promise.resolve(new Response(JSON.stringify({retailers:[{record_id:'fixture-short',store_name:'Fixture Market',store_type:'Supermarket',city:'Longview',state:'WA',street_address:'Public fixture street',distance_miles:1},{record_id:'fixture-long',store_name:'Northwest Community Market and Grocery Cooperative',store_type:'Supermarket',city:'Longview',state:'WA',street_address:'Public fixture avenue',distance_miles:2},{record_id:1235424,store_name:'2701868.0 1868',street_address:'8855 Christenbury Pkwy',city:'Concord',state:'NC',zip_code:'28027',store_type:'Convenience Store',distance_miles:3}]}),{status:200}));return window.realFetch(url,opts)}");
   await fill({address:'Public retailer fixture'});await click('#address-button');
   await until(()=>evaluate("document.querySelectorAll('[name=snap_store]').length===2 && !document.querySelector('#address-button').disabled"),'retailer fixtures');
   await click('[name=snap_store][value="1"]');
@@ -621,6 +677,15 @@ try {
   const storedBeforeClear=await evaluate("document.querySelector('#purchase-log').textContent");
   dialogAnswer=false;await click('#clear-purchases');
   check(await evaluate("document.querySelector('#purchase-log').textContent")===storedBeforeClear,'Clearing purchases asks and cancel preserves them');
+  const beforeLimitedStore = await evaluate("structuredClone(window.currentPlan)");
+  await click('#snap-tab');await click('[name=retailer_filter][value=all]');await click('[name=snap_store][value="2"]');
+  check(await evaluate("NutriCartStore.get().name==='Circle K' && !NutriCartWorkflow.get().basketReady && !NutriCartWorkflow.get().storeReady && !document.querySelector('#snap-build-basket')"),'Switching a generated basket to a limited retailer invalidates the basket without offering regeneration');
+  check(JSON.stringify((await state()).purchases)===JSON.stringify(bought.purchases),'Changing retailer preserves recorded purchases exactly');
+  await evaluate(`(()=>{const data=${JSON.stringify(beforeLimitedStore)};data.context.selected_store={...NutriCartStore.get()};document.dispatchEvent(new CustomEvent('nutricart:open-saved-plan',{detail:{data,updated_at:'2026-01-01T00:00:00Z'}}))})()`);await delay(450);
+  check(await evaluate("NutriCartWorkflow.get().basketReady && window.currentPlan.context.selected_store.name==='Circle K' && window.currentPlan.context.selected_store.source_name==='2701868.0 1868' && !document.querySelector('#plan-results').hidden && document.querySelector('.basket-availability-note').textContent.includes('has not been verified')"),'Historic basket at a limited retailer remains readable with original identity and current inventory caveat');
+  check(JSON.stringify((await state()).purchases)===JSON.stringify(bought.purchases),'Reading a legacy limited-store basket does not replace the purchase ledger');
+  await click('#snap-tab');await click('[name=snap_store][value="1"]');
+  await evaluate(`document.dispatchEvent(new CustomEvent('nutricart:open-saved-plan',{detail:{data:${JSON.stringify(beforeLimitedStore)},updated_at:'2026-01-01T00:00:00Z'}}))`);await delay(450);
   await click('#planner-tab');
   // Capture the same payload consumed by the existing save/restore UI.
   const saved=await evaluate("(()=>{const saved=structuredClone(window.currentPlan);saved.context.selected_store={...saved.context.selected_store,name:'7-eleven #41347a 41347A',source_name:'7-eleven #41347a 41347A'};return saved})()");
@@ -630,7 +695,7 @@ try {
   check(await evaluate("window.currentPlan.context.selected_store.name==='7-Eleven' && window.currentPlan.context.selected_store.source_name==='7-eleven #41347a 41347A' && document.querySelector('#receipt-context').textContent.startsWith('7-Eleven · ') && !document.querySelector('#receipt-context').textContent.includes([window.currentPlan.context.location?.locality,window.currentPlan.context.location?.region].filter(Boolean).join(', '))"),'Saved basket normalizes its selected retailer summary while preserving the source name');
   await progressState('planner',['snap']);
   await evaluate(`(()=>{const data=structuredClone(window.currentPlan);data.context.selected_store={...data.context.selected_store,name:'SNAP-authorized retailer',source_name:'2701868.0 1868'};document.dispatchEvent(new CustomEvent('nutricart:open-saved-plan',{detail:{data,updated_at:'2026-01-01T00:00:00Z'}}))})()`);await delay(600);
-  check(await evaluate("window.currentPlan.context.selected_store.name==='SNAP retailer' && window.currentPlan.context.selected_store.source_name==='2701868.0 1868' && document.querySelector('#receipt-context').textContent.startsWith('SNAP retailer') && !document.querySelector('#receipt-context').textContent.includes('SNAP-authorized retailer')"),'Restored legacy generic retailer is corrected without inventing identity');
+  check(await evaluate("window.currentPlan.context.selected_store.name==='Store name unavailable' && window.currentPlan.context.selected_store.source_name==='2701868.0 1868' && document.querySelector('#receipt-context').textContent.startsWith('Store name unavailable') && !document.querySelector('#receipt-context').textContent.includes('SNAP-authorized retailer')"),'Restored legacy generic retailer is corrected without inventing identity');
   await evaluate(`document.dispatchEvent(new CustomEvent('nutricart:open-saved-plan',{detail:{data:${JSON.stringify(saved)},updated_at:'2026-01-01T00:00:00Z'}}))`);await delay(600);
   await click('#shopping-budget-tab');const restored=await state();
   check(JSON.stringify(restored.purchases)===JSON.stringify(bought.purchases),'Restoring basket preserves purchases');

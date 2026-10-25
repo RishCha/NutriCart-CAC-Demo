@@ -23,10 +23,32 @@
   buildButton.type = "button";
   buildButton.className = "primary store-build-button";
   buildButton.textContent = "Build My Grocery Plan";
+  const policy = JSON.parse(document.querySelector("#retailer-policy")?.textContent || "{}");
+  const filterInputs = [...document.querySelectorAll('input[name="retailer_filter"]')];
+  const countLabel = document.querySelector("#retailer-count");
+  const guidance = document.createElement("section");
+  guidance.className = "store-planning-guidance";
+  guidance.setAttribute("aria-label", "Grocery planning suitability");
+  const guidanceTitle = document.createElement("h4");
+  const guidanceText = document.createElement("p");
+  const findGroceryButton = document.createElement("button");
+  findGroceryButton.type = "button";
+  findGroceryButton.className = "secondary";
+  findGroceryButton.textContent = "Find a Grocery Store";
+  const acknowledgeButton = document.createElement("button");
+  acknowledgeButton.type = "button";
+  acknowledgeButton.className = "secondary";
+  acknowledgeButton.textContent = "Use an illustrative plan";
+  guidance.append(guidanceTitle, guidanceText, findGroceryButton, acknowledgeButton);
+  let retailerFilter = "suitable";
   let selectedStore = null;
   window.NutriCartStore = {
     get: () => selectedStore ? {...selectedStore} : null,
     displayName: store => storeDisplayName(store),
+    suitability: store => storeSuitability(store),
+    planningAllowed: store => planningAllowed(store),
+    findGroceryStore: () => findGroceryStore(),
+    reviewSelection: () => reviewSelection(),
   };
   function publishStore(store) {
     selectedStore = store ? {...store} : null;
@@ -76,12 +98,47 @@
   function updatePlanningTransition() {
     const selectedCard = resultsContainer.querySelector(".store-card.is-selected");
     const ready = Boolean(planningLocation && selectedStore && selectedCard && !resultsSection.hidden && !searchInProgress);
+    buildButton.remove();
+    guidance.remove();
     if (ready) {
-      if (buildButton.parentElement !== selectedCard) selectedCard.append(buildButton);
-    } else buildButton.remove();
+      const category = storeSuitability(selectedStore).category;
+      if (category !== "full") {
+        guidanceTitle.textContent = category === "unknown" ? "Grocery selection unknown" : "Limited grocery selection";
+        guidanceText.textContent = category === "unknown"
+          ? "This retailer's grocery assortment is unknown. Store-specific inventory is not available."
+          : "This SNAP retailer may not carry the foods needed for a complete household grocery plan. Store-specific inventory is not available.";
+        acknowledgeButton.hidden = category !== "unknown" || selectedStore.illustrative_plan_acknowledged === true;
+        selectedCard.append(guidance);
+      }
+      if (planningAllowed(selectedStore)) selectedCard.append(buildButton);
+    }
     locationButton.classList.toggle("primary", !ready);
     locationButton.classList.toggle("secondary", ready);
   }
+
+  function findGroceryStore() {
+    retailerFilter = "suitable";
+    filterInputs.forEach(input => { input.checked = input.value === retailerFilter; });
+    renderRetailers();
+    document.dispatchEvent(new CustomEvent("nutricart:navigate", {detail: {view: "snap"}}));
+    const heading = document.querySelector("#results-title");
+    heading.setAttribute("tabindex", "-1");
+    heading.focus();
+  }
+  function reviewSelection() {
+    retailerFilter = "all";
+    filterInputs.forEach(input => { input.checked = input.value === retailerFilter; });
+    renderRetailers();
+    while (selectedStore && !resultsContainer.querySelector(".store-card.is-selected") && !showMoreButton.hidden) showNextPage();
+    document.dispatchEvent(new CustomEvent("nutricart:navigate", {detail: {view: "snap"}}));
+  }
+  findGroceryButton.addEventListener("click", findGroceryStore);
+  acknowledgeButton.addEventListener("click", () => {
+    if (!selectedStore || storeSuitability(selectedStore).category !== "unknown") return;
+    publishStore({...selectedStore, illustrative_plan_acknowledged: true});
+    updatePlanningTransition();
+    buildButton.focus({preventScroll: true});
+  });
 
   function formatRadius(value) {
     return Number.isInteger(value) ? String(value) : String(value);
@@ -132,16 +189,11 @@
     return data;
   }
 
-  function storeDisplayName(store) {
-    // Re-normalize raw names first: saved records may carry an old generic label.
-    let source = String(store?.store_name || store?.source_name || store?.display_name || "").replace(/\s+/g, " ").trim();
-    if (!source || !/[a-z]/i.test(source) || /^(snap-authorized retailer|snap retailer)$/i.test(source)) return "SNAP retailer";
-    const identified = source.match(/^(.+?\S)\s+#\s*([a-z0-9-]+)(?:\s+\2)*$/i);
-    if (identified && /[a-z]/i.test(identified[1])) source = identified[1].trim();
-    else {
-      const numbered = source.match(/^(.+?\S)\s+(\d{3,}[a-z]?)(?:\s+\2)*$/i);
-      if (numbered && /[a-z]/i.test(numbered[1])) source = numbered[1].trim();
-    }
+  function normalizedName(value) {
+    let source = String(value || "").replace(/\s+/g, " ").trim();
+    if (!source || !/[a-z]/i.test(source) || /^(snap-authorized retailer|snap retailer|store name unavailable)$/i.test(source)) return null;
+    const match = source.match(/^(.+?\S)\s+#\s*([a-z0-9-]+)(?:\s+\2)*$/i) || source.match(/^(.+?\S)\s+(\d{3,}[a-z]?)(?:\s+\2)*$/i);
+    if (match && /[a-z]/i.test(match[1])) source = match[1].trim();
     if (source === source.toLowerCase() || source === source.toUpperCase()) {
       source = source.toLowerCase().replace(/(^|[\s-])([a-z])/g, (_match, boundary, letter) => boundary + letter.toUpperCase());
       ["CVS", "IGA", "USA"].forEach(acronym => {
@@ -149,6 +201,40 @@
       });
     }
     return source;
+  }
+  function normalizedAddress(value) {
+    return String(value || "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").trim().split(/\s+/).map(word => policy.address_aliases?.[word] || word).join(" ");
+  }
+  function storeDisplayName(store) {
+    for (const field of ["store_name", "source_name", "display_name", "name"]) {
+      const name = normalizedName(store?.[field]);
+      if (name) return name;
+    }
+    const id = value => String(value || "").trim().replace(/\.0$/, "");
+    const candidates = (policy.identities || []).filter(entry => {
+      if (!id(store?.record_id) || id(store.record_id) !== id(entry.record_id)) return false;
+      if (!["street_address", "city", "zip_code"].every(key => store[key] && entry[key]) || !(store.state || store.region)) return false;
+      if (!["street_address", "additional_address", "city"].every(key => normalizedAddress(store[key]) === normalizedAddress(entry[key]))) return false;
+      if (normalizedAddress(store.state || store.region) !== normalizedAddress(entry.state)) return false;
+      return /^\d{5}(?:-\d{4})?$/.test(String(store.zip_code)) && String(store.zip_code).slice(0, 5) === String(entry.zip_code).slice(0, 5)
+        && normalizedName(entry.display_name) && entry.source_url?.startsWith("https://") && entry.verification_date && entry.source_type;
+    });
+    return candidates.length === 1 ? candidates[0].display_name : "Store name unavailable";
+  }
+  function storeSuitability(store) {
+    const value = String(store?.store_type || "").replaceAll("\u2013", "-").replaceAll("\u2019", "'").toLowerCase().replace(/\s+/g, " ").trim();
+    for (const [category, definition] of Object.entries(policy.categories || {})) {
+      if (value && definition.types.some(type => type.toLowerCase() === value)) return {category, label: definition.label};
+    }
+    return {category: "unknown", label: "Unknown assortment"};
+  }
+  function planningAllowed(store) {
+    if (!store) return false;
+    const category = storeSuitability(store).category;
+    return category === "full" || (category === "unknown" && store.illustrative_plan_acknowledged === true);
+  }
+  function storeKey(store) {
+    return JSON.stringify([store?.record_id, store?.street_address, store?.city, store?.state || store?.region]);
   }
 
   function renderStore(store, index) {
@@ -163,6 +249,8 @@
     radio.type = "radio";
     radio.name = "snap_store";
     radio.value = String(index);
+    radio.checked = selectedStore !== null && storeKey(store) === storeKey(selectedStore);
+    card.classList.toggle("is-selected", radio.checked);
     const title = document.createElement("span");
     title.textContent = heading.textContent;
     radio.setAttribute("aria-label", `Select ${heading.textContent}, ${store.street_address || store.city || ""}`);
@@ -177,10 +265,25 @@
         source_name: String(store.store_name || "").trim(),
         city: store.city || "",
         region: store.state || "",
+        street_address: store.street_address || "",
+        additional_address: store.additional_address || "",
+        zip_code: store.zip_code || "",
+        store_type: store.store_type || "",
+        name_resolution: store.name_resolution || null,
+        planning_suitability: storeSuitability(store),
       });
       resultsContainer.querySelectorAll(".store-card").forEach(row => row.classList.toggle("is-selected", row.querySelector("input").checked));
       updatePlanningTransition();
     });
+    if (displayName === "Store name unavailable") {
+      const supporting = document.createElement("p");
+      supporting.textContent = "SNAP-authorized retailer";
+      card.append(supporting);
+    }
+    const suitability = document.createElement("p");
+    suitability.className = "store-suitability";
+    suitability.textContent = storeSuitability(store).label;
+    card.append(suitability);
     const details = [
       ["Store type", store.store_type || "Not listed"],
       ["Distance", `${Number(store.distance_miles || 0).toFixed(1)} miles`],
@@ -202,14 +305,36 @@
     return card;
   }
 
+  function filteredRetailers() {
+    return retailerFilter === "all" ? retailers : retailers.filter(store => storeSuitability(store).category === "full");
+  }
+  function updateRetailerCount() {
+    const filtered = filteredRetailers();
+    countLabel.textContent = `${Math.min(visibleCount, filtered.length)} of ${filtered.length} ${retailerFilter === "all" ? "SNAP retailers" : "planning candidates"} shown \u00b7 ${retailers.length} SNAP retailers found`;
+    if (!filtered.length && retailers.length) countLabel.textContent = "No full-grocery planning stores were found in this search area. Try a larger radius or view all SNAP retailers.";
+  }
+  function renderRetailers() {
+    visibleCount = 0;
+    resultsContainer.replaceChildren();
+    showNextPage();
+    updatePlanningTransition();
+  }
   function showNextPage() {
     const scrollY = window.scrollY;
-    const nextCount = Math.min(visibleCount + 10, retailers.length);
-    retailers.slice(visibleCount, nextCount).forEach((store, index) => resultsContainer.append(renderStore(store, visibleCount + index)));
+    const filtered = filteredRetailers();
+    const nextCount = Math.min(visibleCount + 10, filtered.length);
+    filtered.slice(visibleCount, nextCount).forEach(store => resultsContainer.append(renderStore(store, retailers.indexOf(store))));
     visibleCount = nextCount;
-    showMoreButton.hidden = visibleCount >= retailers.length;
+    showMoreButton.hidden = visibleCount >= filtered.length;
+    updateRetailerCount();
+    updatePlanningTransition();
     if (visibleCount > 10) window.scrollTo({top: scrollY, behavior: "instant"});
   }
+  filterInputs.forEach(input => input.addEventListener("change", () => {
+    if (!input.checked) return;
+    retailerFilter = input.value;
+    renderRetailers();
+  }));
 
   async function search(latitude, longitude, radiusForSearch) {
     if (activeSearchController) activeSearchController.abort();
@@ -224,7 +349,7 @@
     try {
       const data = await postJson("/api/snap-retailers", {latitude, longitude, radius_miles: radiusForSearch}, controller.signal);
       if (requestId !== searchRequestId) return null;
-      retailers = data.retailers;
+      retailers = Array.isArray(data.retailers) ? data.retailers : [];
       visibleCount = 0;
       resultsContainer.replaceChildren();
       resultsSection.hidden = false;
@@ -360,7 +485,7 @@
     status.textContent = "";
   });
   buildButton.addEventListener("click", () => {
-    if (!selectedStore || !planningLocation || searchInProgress) return;
+    if (!planningAllowed(selectedStore) || !planningLocation || searchInProgress) return;
     document.dispatchEvent(new CustomEvent("nutricart:navigate", {detail: {view: "planner"}}));
   });
   const header = document.querySelector(".site-header");

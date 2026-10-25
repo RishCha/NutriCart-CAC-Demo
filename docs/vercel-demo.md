@@ -75,3 +75,7 @@ Relevant source guidance:
 - SNAP logo guidance: https://www.fns.usda.gov/snap/logo-guidance
 
 Nutrition-data rights do not grant permission to use the USDA SNAP service mark. NutriCart displays source attribution and non-endorsement text rather than the official logo.
+
+## Retailer identity and planning suitability
+
+Package `retailer_policy.py` and `data/retailers/verified_identities.json` with the Flask function. The nested JSON is intentionally outside `data/*.json` exclusions. The build validates it. See `data/retailers/README.md` for evidence, matching rules, USDA category mappings and conservative/unknown-category trade-offs. This policy is not retailer inventory data. No new secrets or external business API are required.

@@ -88,7 +88,7 @@
 
   function hasPlanningStore() {
     const store = window.NutriCartStore?.get();
-    return Boolean(store && (store.record_id !== null || [store.name, store.city, store.region].some(value => typeof value === "string" && value.trim())));
+    return Boolean(store && window.NutriCartStore?.planningAllowed(store));
   }
 
   function hasCurrentBasket() {
@@ -146,6 +146,15 @@
     const budgetReady = basketReady || budgetSessionReady;
     const next = nextRequiredStep();
 
+    const selectedStore = window.NutriCartStore?.get();
+    const blockedStore = selectedStore && !hasPlanningStore();
+    const unknownStore = blockedStore && window.NutriCartStore?.suitability(selectedStore).category === "unknown";
+    document.querySelector("#planner-locked-title").textContent = blockedStore ? (unknownStore ? "Grocery selection unknown" : "Limited grocery selection") : "Build Your Basket";
+    document.querySelector("#planner-gate-message").textContent = blockedStore
+      ? (unknownStore ? "This retailer's grocery assortment is unknown. Store-specific inventory is not available."
+        : "This SNAP retailer may not carry the foods needed for a complete household grocery plan. Store-specific inventory is not available.")
+      : "Find a SNAP-authorized store first to unlock grocery planning.";
+    document.querySelector("#set-planning-location").textContent = blockedStore ? (unknownStore ? "Review Store Selection" : "Find a Grocery Store") : "Find SNAP Stores";
     plannerGate.hidden = plannerReady;
     plannerCard.hidden = !plannerReady;
     document.querySelector("#change-planning-location").hidden = !hasPlanningLocation();
@@ -688,7 +697,7 @@
     const sourceName = typeof store.source_name === "string" && store.source_name.trim()
       ? store.source_name.trim()
       : (typeof store.name === "string" ? store.name.trim() : "");
-    const name = window.NutriCartStore?.displayName?.({store_name: sourceName}) || "";
+    const name = window.NutriCartStore?.displayName?.({...store, store_name: sourceName}) || "";
     return {...context, selected_store: {...store, name, source_name: sourceName}};
   }
   function renderResult(result, alternative = false, contextOverride = null) {
@@ -977,7 +986,13 @@
     document.querySelector("#location-button").focus({preventScroll: true});
     document.querySelector(".locator").scrollIntoView({behavior: transitionDelay(1, 1) ? "smooth" : "instant", block: "start"});
   });
-  document.querySelector("#set-planning-location").addEventListener("click", () => switchView("snap"));
+  document.querySelector("#set-planning-location").addEventListener("click", () => {
+    const store = window.NutriCartStore?.get();
+    if (store && !hasPlanningStore()) {
+      if (window.NutriCartStore.suitability(store).category === "unknown") window.NutriCartStore.reviewSelection();
+      else window.NutriCartStore.findGroceryStore();
+    } else switchView("snap");
+  });
   document.querySelector("#change-planning-location").addEventListener("click", () => switchView("snap"));
   function updatePlanningLocation() {
     updateWorkflowState();
@@ -1026,6 +1041,7 @@
     updateWorkflowProgress();
   });
   document.addEventListener("nutricart:store-changed", () => {
+    stopGeneration();
     if (hasCurrentBasket()) invalidateCurrentPlanForLocation();
     else updateWorkflowState();
   });

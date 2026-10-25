@@ -28,4 +28,9 @@ if __name__ == "__main__":
         records = json.loads((ROOT / "data" / "demo" / name).read_text(encoding="utf-8"))
         if not records or any(not row.get("price_is_synthetic") or not str(row.get("product_id", "")).startswith("demo-") for row in records):
             raise ValueError("Deployment requires the independent demonstration catalog.")
+    # The nested public policy must be packaged with the function, not merely documented.
+    from retailer_policy import POLICY_PATH
+    policy = json.loads(POLICY_PATH.read_text(encoding="utf-8"))
+    if policy.get("schema_version") != 1 or not policy.get("categories") or not isinstance(policy.get("identities"), list):
+        raise ValueError("Deployment requires the reviewed retailer policy.")
     build_assets()

@@ -58,3 +58,7 @@ tests/test_web_budget_tracker.py
 tests/test_web_meal_plan.py
 tests/uat_demo_catalog.mjs
 vercel.json
+retailer_policy.py
+data/retailers/verified_identities.json
+data/retailers/README.md
+tests/test_retailer_policy.py

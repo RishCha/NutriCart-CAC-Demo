@@ -7,3 +7,5 @@ Package masses and prices are independently authored synthetic examples. data/de
 USDA SNAP retailer lookup supplies authorization records, separate from example groceries. Census Geocoder resolves submitted addresses. OpenStreetMap/Nominatim may resolve device coordinates for approximate address autofill. These services are not catalog sources and have their own terms and availability limits. OpenStreetMap attribution: https://www.openstreetmap.org/copyright
 
 The USDA SNAP logo is a separate service mark, not licensed by the nutrition CC0 terms. The acknowledgement and non-endorsement statement are retained. Confirm intended noncommercial educational/outreach use and graphic requirements before publication: https://www.fns.usda.gov/snap/logo-guidance
+
+Reviewed supplemental retailer names and USDA-type planning heuristics are documented in data/retailers/README.md. The Circle K identity uses an official retailer location page and a corroborating government record, matched by full address and USDA ID. Source USDA records remain unchanged. Categories and example groceries do not verify individual store inventory.

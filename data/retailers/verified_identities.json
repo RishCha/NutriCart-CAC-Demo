@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "type_source_url": "https://www.fns.usda.gov/snap/store-definitions",
+  "address_aliases": {
+    "parkway": "pkwy",
+    "street": "st",
+    "avenue": "ave",
+    "road": "rd",
+    "boulevard": "blvd",
+    "drive": "dr",
+    "lane": "ln",
+    "court": "ct",
+    "highway": "hwy",
+    "north": "n",
+    "south": "s",
+    "east": "e",
+    "west": "w"
+  },
+  "categories": {
+    "full": {
+      "label": "Full grocery planning candidate",
+      "types": [
+        "SM",
+        "SS",
+        "LG",
+        "MG",
+        "Supermarket",
+        "Super Store",
+        "Super Store/Chain Store",
+        "Superstore",
+        "Large Grocery Store",
+        "Medium Grocery Store",
+        "Grocery Store"
+      ]
+    },
+    "limited": {
+      "label": "Limited-assortment SNAP retailer",
+      "types": [
+        "CS",
+        "SG",
+        "CO",
+        "Convenience Store",
+        "Small Grocery Store",
+        "Combination Grocery/Other",
+        "Gas Station"
+      ]
+    },
+    "specialty": {
+      "label": "Specialty retailer",
+      "types": [
+        "BB",
+        "FV",
+        "ME",
+        "SE",
+        "DF",
+        "FM",
+        "Specialty Food Store - Bakery/Bread",
+        "Specialty Food Store - Fruits/Vegetables",
+        "Specialty Food Store - Meat/Poultry",
+        "Specialty Food Store - Seafood",
+        "Direct Marketing Farmer",
+        "Farmers Market",
+        "Farmers' Market",
+        "Specialty Food Store"
+      ]
+    },
+    "unknown": {
+      "label": "Unknown assortment",
+      "types": []
+    }
+  },
+  "identities": [
+    {
+      "record_id": "1235424",
+      "street_address": "8855 Christenbury Pkwy",
+      "additional_address": "",
+      "city": "Concord",
+      "state": "NC",
+      "zip_code": "28027",
+      "display_name": "Circle K",
+      "source_url": "https://www.circlek.com/station/8855-christenbury-pkwy-concord-us",
+      "verification_date": "2026-10-24",
+      "source_type": "official_retailer_location",
+      "corroborating_source_url": "https://www.abc.nc.gov/media/476/open",
+      "notes": "NC ABC January 12, 2022 meeting record identifies Circle K Store 1868 at this full address. Identity only; no inventory assertion."
+    }
+  ]
+}

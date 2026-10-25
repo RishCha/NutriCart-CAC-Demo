@@ -2,11 +2,12 @@
 
 import json
 import math
-import re
 import socket
 import urllib.error
 import urllib.parse
 import urllib.request
+
+from retailer_policy import UNRESOLVED_NAME, enrich_retailer, normalized_name
 
 
 SNAP_QUERY_URL = (
@@ -125,25 +126,8 @@ def _normalized(value: object) -> str:
 
 
 def retailer_display_name(source_name: object) -> str:
-    """Return a readable label without changing the USDA source value."""
-    name = " ".join(str(source_name or "").split())
-    if (not name or not any(character.isalpha() for character in name)
-            or name.casefold() in {"snap-authorized retailer", "snap retailer"}):
-        return "SNAP retailer"
-    # USDA names commonly append a store identifier, sometimes repeating it
-    # after a hash. Preserve the source separately and remove only terminal IDs.
-    identified = re.fullmatch(r"(.+?\S)\s+#\s*([A-Za-z0-9-]+)(?:\s+\2)*", name, re.IGNORECASE)
-    if identified and any(character.isalpha() for character in identified.group(1)):
-        name = identified.group(1).strip()
-    else:
-        numbered = re.fullmatch(r"(.+?\S)\s+(\d{3,}[A-Za-z]?)(?:\s+\2)*", name, re.IGNORECASE)
-        if numbered and any(character.isalpha() for character in numbered.group(1)):
-            name = numbered.group(1).strip()
-    if name.islower() or name.isupper():
-        name = name.title()
-        for acronym in ("CVS", "IGA", "USA"):
-            name = re.sub(rf"\b{acronym.title()}\b", acronym, name)
-    return name
+    """Readable source-only label; full identity matching uses complete retailer records."""
+    return normalized_name(source_name) or UNRESOLVED_NAME
 
 
 def find_snap_retailers(
@@ -204,7 +188,7 @@ def find_snap_retailers(
                 continue
             seen.add(identity)
             source_name = attributes.get("Store_Name") or ""
-            stores.append({
+            stores.append(enrich_retailer({
                 "record_id": record_id, "store_name": source_name,
                 "display_name": retailer_display_name(source_name),
                 "street_address": attributes.get("Store_Street_Address") or "",
@@ -215,7 +199,7 @@ def find_snap_retailers(
                 "longitude": store_longitude, "distance_miles": distance,
                 "incentive_program": attributes.get("Incentive_Program") or "",
                 "grantee_name": attributes.get("Grantee_Name") or "",
-            })
+            }))
         if response.get("exceededTransferLimit") is False:
             break
     if retrieved >= SAFETY_CAP:
