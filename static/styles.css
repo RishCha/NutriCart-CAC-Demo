@@ -1081,11 +1081,20 @@ body {
 /* Account and saved-library visual refinement. */
 .account-menu-wrap { position: relative; }
 .forgot-password-action { justify-self: start; }
-.password-strength { display: block; margin-top: 4px; font-size: .85rem; font-weight: 600; }
-.password-strength:empty { display: none; }
-.password-strength[data-strength="weak"] { color: #8c3326; }
-.password-strength[data-strength="fair"] { color: #77540b; }
-.password-strength[data-strength="strong"] { color: var(--green-dark); }
+.password-strength { display: grid; gap: 6px; width: 100%; min-width: 0; margin-top: 7px; font-size: .84rem; font-weight: 700; }
+.password-strength-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; }
+.password-strength-title { color: var(--muted); font-weight: 650; }
+.password-strength-value { min-width: 3.5rem; color: #8c3326; text-align: right; transition: color 380ms ease; }
+.password-strength[data-empty="true"] .password-strength-value { color: transparent; }
+.password-strength-track { display: block; width: 100%; height: 9px; overflow: hidden; border-radius: 999px; background: #dfe6e1; box-shadow: inset 0 1px 2px #17352a12; }
+.password-strength-fill { display: block; width: 0; height: 100%; border-radius: inherit; background: #a64a3d; transition: width 480ms cubic-bezier(.22, .75, .26, 1), background-color 380ms ease; will-change: width; }
+.password-strength[data-strength="weak"] .password-strength-fill { background-color: #a64a3d; }
+.password-strength[data-strength="fair"] .password-strength-fill { background-color: #b27a22; }
+.password-strength[data-strength="good"] .password-strength-fill { background-color: #3f845d; }
+.password-strength[data-strength="strong"] .password-strength-fill { background-color: #194f38; }
+.password-strength[data-strength="fair"] .password-strength-value { color: #77540b; }
+.password-strength[data-strength="good"] .password-strength-value { color: #2f6f4d; }
+.password-strength[data-strength="strong"] .password-strength-value { color: #194f38; }
 .password-reset-page { max-width: 480px; margin-top: 32px; }
 .password-reset-page > .brand { margin-bottom: 24px; text-decoration: none; }
 .password-reset-page .panel { padding: 24px; }
@@ -1960,7 +1969,7 @@ html { scroll-padding-top: var(--header-offset, 190px); }
   .app-view, button, .planner-card, .workflow-locked-card, .budget-balance-card,
   .shopping-list-panel, .additional-purchases, details > summary,
   #feedback-dialog, #feedback-dialog::backdrop, .reveal-sequence > *,
-  .budget-dashboard.is-arriving .budget-reveal { transition: none !important; animation: none !important; }
+  .budget-dashboard.is-arriving .budget-reveal, .password-strength-fill, .password-strength-value { transition: none !important; animation: none !important; }
 }
 
 /* Task 69H: balanced basket actions and a connected final Meal Plan. */

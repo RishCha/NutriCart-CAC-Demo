@@ -75,16 +75,16 @@ class SupabaseAccounts:
             return data, response
         if response.status_code == 429:
             raise SupabaseError("Too many account requests. Wait a moment and try again.", 429)
-        code = str(data.get("code") or "").strip().casefold() if isinstance(data, dict) else ""
+        code = str(data.get("error_code") or data.get("code") or "").strip().casefold() if isinstance(data, dict) else ""
         if code == "email_not_confirmed":
-            raise SupabaseError("Confirm your email before signing in.", 401)
+            raise SupabaseError("Please verify your email before signing in.", 401, code)
         if code == "invalid_credentials":
-            raise SupabaseError("Email or password is incorrect.", 401)
+            raise SupabaseError("Incorrect email or password. Please try again.", 401, code)
         if code in {"user_already_exists", "email_exists"}:
             raise SupabaseError("Account services could not complete that request.", 400, code)
         if response.status_code in {401, 403}:
-            raise SupabaseError("Email or password is incorrect.", 401)
-        raise SupabaseError("Account services could not complete that request.", 400 if response.status_code < 500 else 503)
+            raise SupabaseError("Incorrect email or password. Please try again.", 401, code)
+        raise SupabaseError("Account services could not complete that request.", 400 if response.status_code < 500 else 503, code)
 
     @staticmethod
     def public_user(value):
@@ -134,7 +134,7 @@ class SupabaseAccounts:
     def login(self, email, password):
         email = AccountStore.normalize_email(email)
         if not isinstance(password, str):
-            raise SupabaseError("Email or password is incorrect.", 401)
+            raise SupabaseError("Incorrect email or password. Please try again.", 401)
         data, _ = self._request(
             "POST",
             "/auth/v1/token",

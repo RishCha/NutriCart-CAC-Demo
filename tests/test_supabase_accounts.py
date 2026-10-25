@@ -166,7 +166,7 @@ class SupabaseAdapterTests(unittest.TestCase):
         self.assertIn("function clearTransientAuthStatus()", script)
         self.assertIn("clearTransientAuthStatus();", script.split("function selectAccountSection", 1)[1])
         self.assertIn('document.addEventListener("nutricart:navigate", clearTransientAuthStatus)', script)
-        self.assertIn('error.message === "Confirm your email before signing in."', script)
+        self.assertIn('message === "Please verify your email before signing in."', script)
         self.assertIn("showConfirmationAssistance(payload.email)", script)
 
     def test_confirmation_fragments_are_cleared_and_mapped_without_provider_text(self):
@@ -181,14 +181,41 @@ class SupabaseAdapterTests(unittest.TestCase):
     def test_new_password_controls_expose_the_same_policy_as_the_server(self):
         page = Path("templates/index.html").read_text(encoding="utf-8")
         reset = Path("templates/reset_password.html").read_text(encoding="utf-8")
-        requirement = "Use at least 10 characters and include both letters and numbers."
-        stronger = "For a stronger password, use a longer phrase with a mix of letters and numbers."
+        requirement = "Use 10+ characters, including letters and numbers."
         self.assertEqual(page.count(requirement), 4)
         self.assertEqual(reset.count(requirement), 2)
-        self.assertEqual(page.count(stronger), 2)
-        self.assertEqual(reset.count(stronger), 1)
+        self.assertNotIn("For a stronger password", page + reset)
         self.assertEqual(page.count('pattern="(?=.*[A-Za-z])(?=.*[0-9]).{10,}"'), 2)
         self.assertEqual(reset.count('pattern="(?=.*[A-Za-z])(?=.*[0-9]).{10,}"'), 1)
+
+    def test_password_strength_meter_is_continuous_and_accessible(self):
+        script = Path("static/password_fields.js").read_text(encoding="utf-8")
+        styles = Path("static/styles.css").read_text(encoding="utf-8")
+        self.assertIn("function evaluateStrength(value)", script)
+        self.assertIn("Math.min(valid ? 100 : 74, score)", script)
+        self.assertIn('track.setAttribute("role", "meter")', script)
+        self.assertIn('track.setAttribute("aria-valuetext"', script)
+        self.assertIn('fill.style.width = `${result.score}%`', script)
+        self.assertIn('reducedMotion.matches ? "0ms" : "480ms"', script)
+        self.assertNotRegex(script, r"(?:25|50|75|100)%")
+        self.assertIn("height: 9px", styles)
+        self.assertIn("width 480ms cubic-bezier", styles)
+        self.assertIn("#194f38", styles)
+        self.assertIn(".password-strength-fill, .password-strength-value { transition: none !important", styles)
+
+    def test_frontend_maps_signin_and_recovery_failures_safely(self):
+        script = Path("static/account.js").read_text(encoding="utf-8")
+        for message in (
+            "Incorrect email or password. Please try again.",
+            "Please verify your email before signing in.",
+            "Too many attempts. Please try again later.",
+            "Couldn't connect. Check your connection and try again.",
+            "Sign-in is temporarily unavailable. Please try again later.",
+            "Too many reset requests. Please wait a minute before trying again.",
+        ):
+            self.assertIn(message, script)
+        self.assertIn("if (passwordRecoveryPending) return;", script)
+        self.assertIn("holdPasswordRecoverySubmit()", script)
 
     def test_signup_client_validates_and_throttles_safe_retries(self):
         page = Path("templates/index.html").read_text(encoding="utf-8")
@@ -196,7 +223,7 @@ class SupabaseAdapterTests(unittest.TestCase):
         passwords = Path("static/password_fields.js").read_text(encoding="utf-8")
         self.assertIn('id="create-account-submit"', page)
         self.assertIn('function meetsRequirements(value)', passwords)
-        self.assertIn('input.setCustomValidity(input.value && !meetsRequirements(input.value) ? requirementMessage : "")', passwords)
+        self.assertIn('input.setCustomValidity(input.value && !result.valid ? requirementMessage : "")', passwords)
         self.assertIn('!window.NutriCartPasswords?.meetsRequirements(password.value)', account)
         self.assertIn('form.reportValidity()', account)
         self.assertIn('if (authPending) return;', account)
@@ -274,11 +301,11 @@ class SupabaseAdapterTests(unittest.TestCase):
 
     def test_known_auth_error_codes_get_safe_specific_messages(self):
         for code, expected in (
-            ("email_not_confirmed", "Confirm your email before signing in."),
-            ("invalid_credentials", "Email or password is incorrect."),
+            ("email_not_confirmed", "Please verify your email before signing in."),
+            ("invalid_credentials", "Incorrect email or password. Please try again."),
         ):
             with self.subTest(code=code):
-                client, _ = self.client(Response(400, {"code": code, "message": "private provider detail"}))
+                client, _ = self.client(Response(400, {"error_code": code, "message": "private provider detail"}))
                 with self.assertRaisesRegex(SupabaseError, expected.replace(".", r"\.")) as caught:
                     client.login("shopper@example.test", "strong-password")
                 self.assertEqual(caught.exception.status, 401)
@@ -310,7 +337,7 @@ class FakeSupabase:
 
     def login(self, email=None, password=None):
         if password == "wrong-password":
-            raise SupabaseError("Email or password is incorrect.", 401)
+            raise SupabaseError("Incorrect email or password. Please try again.", 401)
         return {"user": self.user(), "tokens": {"access_token": "access", "refresh_token": "refresh", "expires_in": 3600}}
 
     def get_user(self, token):
@@ -386,7 +413,7 @@ class SupabaseRouteTests(unittest.TestCase):
     def test_incorrect_password_is_rejected_without_session(self):
         response = self.post("/api/account/login", {"email": "shopper@example.test", "password": "wrong-password"})
         self.assertEqual(response.status_code, 401)
-        self.assertEqual(response.json["error"], "Email or password is incorrect.")
+        self.assertEqual(response.json["error"], "Incorrect email or password. Please try again.")
         self.assertNotIn("nutricart_access=access", "\n".join(response.headers.getlist("Set-Cookie")))
 
     def test_login_sets_httponly_supabase_cookies_and_logout_clears_them(self):
@@ -431,7 +458,25 @@ class SupabaseRouteTests(unittest.TestCase):
     def test_forgot_password_is_generic(self):
         response = self.post("/api/account/forgot-password", {"email": "shopper@example.test"})
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json["message"], "If an account exists for that email, password reset instructions have been sent.")
+        self.assertEqual(response.json["message"], "If an account matches that email, you'll receive a reset link. Check your inbox and spam folder.")
+
+    def test_forgot_password_surfaces_rate_limit_without_email_enumeration(self):
+        self.fake.request_password_reset = lambda email: (_ for _ in ()).throw(
+            SupabaseError("provider detail", 429, "over_email_send_rate_limit")
+        )
+        response = self.post("/api/account/forgot-password", {"email": "shopper@example.test"})
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(response.json["error"], "Too many reset requests. Please wait a minute before trying again.")
+        self.assertNotIn("shopper@example.test", response.text)
+
+    def test_forgot_password_surfaces_temporary_delivery_failure_safely(self):
+        self.fake.request_password_reset = lambda email: (_ for _ in ()).throw(
+            SupabaseError("provider detail", 400, "email_address_not_authorized")
+        )
+        response = self.post("/api/account/forgot-password", {"email": "shopper@example.test"})
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json["error"], "Password reset is temporarily unavailable. Please try again later.")
+        self.assertNotIn("provider detail", response.text)
 
     def test_confirmation_resend_is_generic_and_does_not_create_an_account(self):
         response = self.post("/api/account/resend-confirmation", {"email": "shopper@example.test"})

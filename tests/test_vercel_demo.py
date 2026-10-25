@@ -376,6 +376,19 @@ class VercelDemoTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 503)
                 self.assertIn("public demo", response.json["error"])
 
+    def test_password_meter_and_recovery_copy_are_packaged(self):
+        with patch.dict(app.app.config, ACCOUNTS_ENABLED=True, SUPABASE_URL="https://project.supabase.co", SUPABASE_ANON_KEY="publishable-test-key"):
+            page = self.client.get("/").text
+        reset = self.client.get("/reset-password").text
+        script = Path("static/password_fields.js").read_text(encoding="utf-8")
+        account = Path("static/account.js").read_text(encoding="utf-8")
+        self.assertIn("Use 10+ characters, including letters and numbers.", page)
+        self.assertIn("Use 10+ characters, including letters and numbers.", reset)
+        self.assertIn('role", "meter"', script)
+        self.assertIn("PASSWORD_RECOVERY_RATE_LIMIT_MESSAGE", account)
+        self.assertIn("password-meter-77a", page)
+        self.assertIn("password-meter-77a", reset)
+
     def test_logout_and_reset_page_remain_accessible(self):
         csrf = self.client.get("/api/account/session").json["csrf_token"]
         self.assertEqual(self.client.post("/api/account/logout", headers={"X-CSRF-Token": csrf}).status_code, 200)

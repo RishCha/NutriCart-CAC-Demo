@@ -714,13 +714,13 @@ def account_login():
     try:
         result = _supabase_accounts().login(payload.get("email"), payload.get("password"))
         if not result.get("tokens"):
-            raise SupabaseError("Email or password is incorrect.", 401)
+            raise SupabaseError("Incorrect email or password. Please try again.", 401)
         user = result["user"]
         _queue_supabase_tokens(result["tokens"])
         if not user:
             attempts.append(now)
             _LOGIN_ATTEMPTS[key] = attempts
-            return jsonify({"error": "Email or password is incorrect."}), 401
+            return jsonify({"error": "Incorrect email or password. Please try again."}), 401
     except (StoreError, SupabaseError) as error:
         attempts.append(now)
         _LOGIN_ATTEMPTS[key] = attempts
@@ -770,17 +770,21 @@ def reset_password_page():
 @app.post("/api/account/forgot-password")
 @_csrf_required
 def account_forgot_password():
-    confirmation = {"message": "If an account exists for that email, password reset instructions have been sent."}
+    confirmation = {"message": "If an account matches that email, you'll receive a reset link. Check your inbox and spam folder."}
     try:
         payload = _json_object()
     except ValueError:
         return jsonify({"error": "Request body must be a JSON object."}), 400
     try:
         _supabase_accounts().request_password_reset(payload.get("email"))
-    except (StoreError, SupabaseError):
+    except SupabaseError as error:
+        if error.status == 429:
+            return jsonify({"error": "Too many reset requests. Please wait a minute before trying again."}), 429
+        if error.status >= 500 or error.provider_code == "email_address_not_authorized":
+            return jsonify({"error": "Password reset is temporarily unavailable. Please try again later."}), 503
+    except StoreError:
         pass
     return jsonify(confirmation)
-
 
 @app.post("/api/account/resend-confirmation")
 @_csrf_required

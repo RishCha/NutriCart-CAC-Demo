@@ -34,10 +34,15 @@
   let registrationRetryUntil = 0;
   let registrationRetryTimer = null;
   let registrationRetryMessage = "";
+  let passwordRecoveryPending = false;
+  let passwordRecoveryRetryUntil = 0;
+  let passwordRecoveryRetryTimer = null;
   let transientAuthStatus = false;
   const REGISTRATION_RETRY_DELAY_MS = 3000;
   const REGISTRATION_RATE_LIMIT_COOLDOWN_MS = 60000;
   const REGISTRATION_RATE_LIMIT_MESSAGE = "Too many account attempts. Please wait a moment before trying again.";
+  const PASSWORD_RECOVERY_RATE_LIMIT_MESSAGE = "Too many reset requests. Please wait a minute before trying again.";
+  const PASSWORD_RECOVERY_COOLDOWN_MS = 60000;
 
   function showGroceryPlanSaved(saved) {
     const button = document.querySelector("#save-grocery-plan");
@@ -194,6 +199,32 @@
     return "We could not create the account. Check that your email is valid and your password meets the requirements, then try again.";
   }
 
+  function signInErrorMessage(error) {
+    if (error.status === 429) return "Too many attempts. Please try again later.";
+    if (!error.status) return "Couldn't connect. Check your connection and try again.";
+    if (error.message === "Please verify your email before signing in.") return error.message;
+    if (error.status === 401 || error.status === 403) return "Incorrect email or password. Please try again.";
+    if ([500, 502, 503, 504].includes(error.status)) return "Sign-in is temporarily unavailable. Please try again later.";
+    return "Sign-in could not be completed. Please check your details and try again.";
+  }
+
+  function passwordRecoveryErrorMessage(error) {
+    if (error.status === 429) return PASSWORD_RECOVERY_RATE_LIMIT_MESSAGE;
+    if (!error.status) return "Couldn't connect. Check your connection and try again.";
+    if (error.status >= 500) return "Password reset is temporarily unavailable. Please try again later.";
+    return "The reset request could not be completed. Please check the email address and try again.";
+  }
+
+  function holdPasswordRecoverySubmit() {
+    passwordRecoveryRetryUntil = Date.now() + PASSWORD_RECOVERY_COOLDOWN_MS;
+    const submit = document.querySelector("#forgot-password-submit");
+    submit.disabled = true;
+    window.clearTimeout(passwordRecoveryRetryTimer);
+    passwordRecoveryRetryTimer = window.setTimeout(() => {
+      if (!passwordRecoveryPending && Date.now() >= passwordRecoveryRetryUntil) submit.disabled = false;
+    }, PASSWORD_RECOVERY_COOLDOWN_MS + 25);
+  }
+
   async function authenticate(path, payload) {
     const registering = path.endsWith("register");
     if (authPending) return;
@@ -231,13 +262,14 @@
       }
     } catch (error) {
       if (revision === authRevision) {
-        if (!registering && error.message === "Confirm your email before signing in.") showConfirmationAssistance(payload.email);
         if (registering) {
           const message = registrationErrorMessage(error);
           holdRegistrationSubmit(error.status === 429 ? REGISTRATION_RATE_LIMIT_COOLDOWN_MS : REGISTRATION_RETRY_DELAY_MS, message);
           setStatus(message, true);
         } else {
-          setStatus(error.status ? error.message : "Sign in failed. Please try again.", true);
+          const message = signInErrorMessage(error);
+          if (message === "Please verify your email before signing in.") showConfirmationAssistance(payload.email);
+          setStatus(message, true);
         }
       }
     }
@@ -498,15 +530,26 @@
     document.querySelector("#confirmation-back-to-sign-in").addEventListener("click", () => { setAuthMode("signin"); document.querySelector("#sign-in-email").focus(); });
     document.querySelector("#forgot-password-form").addEventListener("submit", async event => {
       event.preventDefault();
+      if (passwordRecoveryPending) return;
+      if (Date.now() < passwordRecoveryRetryUntil) {
+        setStatus(PASSWORD_RECOVERY_RATE_LIMIT_MESSAGE, true);
+        return;
+      }
+      passwordRecoveryPending = true;
       const revision = ++authRevision;
       const submit = event.target.querySelector('[type="submit"]');
-      submit.disabled = true; setStatus("");
+      submit.disabled = true; submit.textContent = "Sending..."; setStatus("");
       try {
         const data = await api("/api/account/forgot-password", {method: "POST", body: JSON.stringify({email: document.querySelector("#forgot-password-email").value})});
         if (revision === authRevision && authMode === "forgot") setStatus(data.message);
       } catch (error) {
-        if (revision === authRevision) setStatus(error.status ? error.message : "The request could not be sent. Please try again.", true);
-      } finally { submit.disabled = false; }
+        if (error.status === 429) holdPasswordRecoverySubmit();
+        if (revision === authRevision) setStatus(passwordRecoveryErrorMessage(error), true);
+      } finally {
+        passwordRecoveryPending = false;
+        submit.textContent = "Send Reset Link";
+        submit.disabled = Date.now() < passwordRecoveryRetryUntil;
+      }
     });
     document.querySelector("#sign-in-form").addEventListener("submit", event => { event.preventDefault(); authenticate("/api/account/login", {email: document.querySelector("#sign-in-email").value, password: document.querySelector("#sign-in-password").value}); });
     document.querySelector("#create-account-form").addEventListener("submit", event => {
@@ -514,7 +557,7 @@
       const form = event.currentTarget;
       const password = document.querySelector("#account-password");
       if (!window.NutriCartPasswords?.meetsRequirements(password.value) || !form.checkValidity()) {
-        setStatus(window.NutriCartPasswords?.requirementMessage || "Use at least 10 characters and include both letters and numbers.", true);
+        setStatus(window.NutriCartPasswords?.requirementMessage || "Use 10+ characters, including letters and numbers.", true);
         form.reportValidity();
         return;
       }
