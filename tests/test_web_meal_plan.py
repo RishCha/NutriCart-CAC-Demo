@@ -267,7 +267,7 @@ class MealPlanPageTests(unittest.TestCase):
         self.assertIn("Legacy step", str(legacy))
         self.assertNotIn("meal.directions", self.script)
         self.assertNotIn("recipe_directions_ai_assisted", self.script)
-        self.assertIn("meal_plan.js?v=diet-signout-73", self.page)
+        self.assertIn("meal_plan.js?v=workflow-78", self.page)
 
     def test_long_plan_rotation_is_explicit(self):
         self.assertIn("A ${data.rotation_days}-day meal rotation for your ${data.days_requested}-day grocery plan.", self.script)
@@ -281,6 +281,17 @@ class MealPlanPageTests(unittest.TestCase):
             self.assertIn(emoji, self.cursor)
         for identifier in ("planner-view", "shopping-budget-view", "snap-view", "basket-comparison"):
             self.assertIn(f'id="{identifier}"', self.page)
+
+
+    def test_unlocked_entry_and_nutrition_references_use_clear_copy(self):
+        self.assertIn("Your groceries are ready. Let's plan some meals.", self.page)
+        self.assertIn("Use the foods already in your basket.", self.page)
+        self.assertNotIn("Create meals from your basket", self.page)
+        self.assertEqual(self.page.count('id="create-meal-plan"'), 1)
+        self.assertIn('aria-labelledby="meal-plan-title" aria-describedby="meal-ready-copy"', self.page)
+        self.assertIn("Reference values are general daily guidelines and are not personalized nutrition recommendations.", self.page)
+        self.assertIn("Daily reference: ${target.toLocaleString", self.script)
+        self.assertNotIn("Target: ${target.toLocaleString", self.script)
 
 
 if __name__ == "__main__":

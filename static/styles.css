@@ -2023,3 +2023,40 @@ html { scroll-padding-top: var(--header-offset, 190px); }
   .result-utilities { grid-template-columns: 1fr; }
   .result-utilities #alternative-plan { grid-column: auto; }
 }
+
+
+/* Task 78: compact connected workflow progress and step completion. */
+.workflow-progress { box-sizing: border-box; width: min(100%, 760px); margin: 14px auto 22px; padding: 10px 14px; scroll-margin-top: var(--header-offset, 190px); border: 1px solid var(--line); border-radius: 16px; background: #f8faf6; }
+.workflow-progress[hidden] { display: none; }
+.workflow-progress ol { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; padding: 0; list-style: none; }
+.workflow-progress li { position: relative; display: flex; min-width: 0; align-items: center; justify-content: center; gap: 7px; color: var(--muted); font-size: clamp(.72rem, 2.4vw, .86rem); font-weight: 700; line-height: 1.2; }
+.workflow-progress li:not(:last-child)::after { content: ""; position: absolute; left: calc(50% + 27px); width: calc(100% - 54px); height: 1px; background: #c9d5cc; }
+.workflow-progress-marker { z-index: 1; display: grid; width: 25px; height: 25px; flex: 0 0 25px; place-items: center; border: 1px solid #aebfb3; border-radius: 50%; background: #fffdf8; color: #63766a; font-size: .75rem; }
+.workflow-progress li.is-complete { color: #35634c; }
+.workflow-progress li.is-complete .workflow-progress-marker { border-color: #789c85; background: #dfeae1; color: var(--green-dark); }
+.workflow-progress li.is-current { color: var(--green-dark); }
+.workflow-progress li.is-current .workflow-progress-marker { border: 2px solid var(--green); background: var(--green); color: #fff; }
+[data-high-contrast="true"] .workflow-progress { border: 2px solid #526e5f; background: #fff; }
+[data-high-contrast="true"] .workflow-progress-marker { border-width: 2px; }
+#meal-plan-view:has(#meal-plan-ready:not([hidden])) .meal-plan-heading { width: min(100%, 760px); }
+#meal-plan-ready { width: min(100%, 760px); padding: clamp(20px, 3vw, 28px); }
+#meal-plan-ready p { margin: 0 auto 16px; }
+.shopping-completion-panel { display: flex; grid-column: 1 / -1; align-items: center; justify-content: space-between; gap: 18px; margin: 4px 0 0; padding: clamp(16px, 2.5vw, 22px); border: 1px solid #a9c4b0; border-left: 4px solid var(--green); border-radius: 16px; background: #e8f2e9; }
+.shopping-completion-panel[hidden] { display: none; }
+.shopping-completion-panel h2 { margin: 0 0 4px; color: var(--green-dark); font-size: clamp(1.15rem, 2vw, 1.35rem); }
+.shopping-completion-panel p { margin: 0; color: var(--muted); }
+.shopping-completion-panel .primary { flex: 0 0 auto; white-space: normal; }
+.basket-nutrition-reference-note { max-width: 680px; margin: 6px 0 14px; color: var(--muted); font-size: .82rem; line-height: 1.45; }
+[data-high-contrast="true"] .shopping-completion-panel { border: 2px solid #526e5f; background: #fff; }
+@media (max-width: 600px) {
+  .shopping-completion-panel { align-items: stretch; flex-direction: column; }
+  .shopping-completion-panel .primary { width: 100%; }
+  #meal-plan-ready { padding: 18px; }
+  #meal-plan-ready p { margin-bottom: 14px; }
+}
+@media (max-width: 390px) {
+  .workflow-progress { margin-block: 10px 16px; padding: 9px 6px; }
+  .workflow-progress li { gap: 4px; }
+  .workflow-progress li:not(:last-child)::after { left: calc(50% + 22px); width: calc(100% - 44px); }
+  .workflow-progress-marker { width: 22px; height: 22px; flex-basis: 22px; }
+}

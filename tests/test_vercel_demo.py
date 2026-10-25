@@ -83,7 +83,7 @@ class VercelDemoTests(unittest.TestCase):
         self.assertIn(".settings-icon { display: block; flex: 0 0 20px; width: 20px; height: 20px; }", styles)
         self.assertIn('<div class="app-settings-utility">', page)
         self.assertNotIn('document.querySelector(".app-settings-utility").hidden', (ROOT / "static" / "account.js").read_text(encoding="utf-8"))
-        self.assertIn("styles.css?v=saved-cards-74b", page)
+        self.assertIn("styles.css?v=workflow-78", page)
 
     def test_shared_brand_logo_is_a_transparent_shopping_cart(self):
         logo = (ROOT / "templates" / "nutricart-logo.svg").read_text(encoding="utf-8").strip()
@@ -112,8 +112,8 @@ class VercelDemoTests(unittest.TestCase):
         self.assertIn("NutriCart supports plans for 1–31 days.", script)
         self.assertNotIn("People must be a whole number from 1 to 20.", script)
         self.assertNotIn("Days must be a whole number from 1 to 31.", script)
-        self.assertIn('filename=\'grocery.js\', v=\'account-home-74c\'', (ROOT / "templates" / "index.html").read_text(encoding="utf-8"))
-        self.assertIn("grocery.js?v=account-home-74c", page)
+        self.assertIn('filename=\'grocery.js\', v=\'workflow-78\'', (ROOT / "templates" / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("grocery.js?v=workflow-78", page)
 
     def test_omnivore_value_is_displayed_as_non_vegetarian_everywhere(self):
         page = self.client.get("/").text
@@ -258,14 +258,14 @@ class VercelDemoTests(unittest.TestCase):
     def test_unlocked_meal_plan_empty_state_is_compact_and_connected(self):
         page = self.client.get("/").text
         styles = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
-        self.assertIn("Turn your grocery basket into simple meal ideas.", page)
-        self.assertIn("Use the groceries already in your basket to build your meal plan.", page)
+        self.assertIn("Your groceries are ready. Let's plan some meals.", page)
+        self.assertIn("Use the foods already in your basket.", page)
         self.assertRegex(page, r'id="meal-plan-ready"[^>]* hidden')
         self.assertIn("#meal-plan-view:has(#meal-plan-ready:not([hidden])) .meal-plan-heading", styles)
-        self.assertIn("width: min(100%, 800px)", styles)
+        self.assertIn("width: min(100%, 760px)", styles)
         self.assertIn("#meal-plan-ready .primary", styles)
         self.assertNotIn("min-height: 330px", styles.split("/* Compact unlocked Meal Plan action state. */", 1)[1])
-        self.assertIn("styles.css?v=saved-cards-74b", page)
+        self.assertIn("styles.css?v=workflow-78", page)
 
     def test_feedback_modal_has_optional_two_stage_actions(self):
         page = self.client.get("/").text
@@ -462,3 +462,17 @@ print('DEMO_STARTUP_OK')
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("GUEST_MODE_OK", result.stdout)
+
+
+    def test_task78_workflow_progress_and_reference_copy_are_packaged(self):
+        page = self.client.get("/").text
+        grocery = (ROOT / "static" / "grocery.js").read_text(encoding="utf-8")
+        meal = (ROOT / "static" / "meal_plan.js").read_text(encoding="utf-8")
+        self.assertIn('id="workflow-progress"', page)
+        self.assertIn('aria-label="NutriCart progress"', page)
+        for label in ("Store", "Plan", "Shop", "Meals"):
+            self.assertIn(f"<span>{label}</span>", page)
+        self.assertIn("updateWorkflowProgress", grocery)
+        self.assertIn('setAttribute("aria-current", "step")', grocery)
+        self.assertIn("Daily reference:", meal)
+        self.assertNotIn("Target:", meal)

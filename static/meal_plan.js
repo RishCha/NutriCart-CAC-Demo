@@ -59,7 +59,7 @@
         : "Unavailable";
       value.append(node("span", "basket-nutrient-value", formatted));
       if (typeof target === "number" && Number.isFinite(target) && target > 0) {
-        value.append(node("small", "basket-nutrient-target", `Target: ${target.toLocaleString(undefined, {maximumFractionDigits: 1})} ${unit}`));
+        value.append(node("small", "basket-nutrient-target", `Daily reference: ${target.toLocaleString(undefined, {maximumFractionDigits: 1})} ${unit}`));
       }
       cell.append(node("dt", "", label), value);
       list.append(cell);

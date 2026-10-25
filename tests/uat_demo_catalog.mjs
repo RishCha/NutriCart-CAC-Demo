@@ -400,6 +400,7 @@ try {
   await click('.store-card p');
   check(await evaluate("document.querySelector('.store-card').contains(document.querySelector('#snap-build-basket')) && document.querySelectorAll('#snap-build-basket').length===1 && document.querySelector('[name=snap_store]').checked"),'Clicking card details selects it and places one button inside');
   check(await evaluate("!document.querySelector('#planner-tab').classList.contains('is-workflow-locked') && NutriCartWorkflow.get().locationReady && NutriCartWorkflow.get().storeReady"),'Store selection unlocks Step 2 before navigation');
+  check(await evaluate("!document.querySelector('#workflow-progress').hidden && document.querySelector('[data-progress-step=snap]').getAttribute('aria-current')==='step' && !document.querySelector('[data-progress-step=planner]').classList.contains('is-complete')"),'Progress identifies Store as the current first step');
   if(await evaluate("!document.querySelector('#show-more').hidden")) {
     await evaluate("window.chosenBeforeMore=NutriCartStore.get();document.querySelector('#show-more').scrollIntoView({block:'center',behavior:'instant'})");await delay(200);
     const beforeMore=await evaluate('window.scrollY');
@@ -430,6 +431,7 @@ try {
   await cdp('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
   await click('#snap-build-basket');
   check(await evaluate("document.querySelector('#planner-location-gate').hidden && !document.querySelector('#change-planning-location').hidden && !document.querySelector('#planner-form').hidden"),'Valid location reveals form and subtle change action');
+  check(await evaluate("document.querySelector('[data-progress-step=snap]').classList.contains('is-complete') && document.querySelector('[data-progress-step=planner]').getAttribute('aria-current')==='step'"),'Progress marks Store complete and Plan current');
   check(await evaluate("document.querySelector('#meal-plan-tab').classList.contains('is-workflow-locked') && document.querySelector('#shopping-budget-tab').classList.contains('is-workflow-locked')"),'Steps 3 and 4 remain locked before basket generation');
   await layout('#planner-view','planner-before');
   check(await evaluate("document.querySelector('#planner-essentials').getClientRects().length>0 && !document.querySelector('#planner-form').hidden"),'Planner heading and form visible before generation');
@@ -496,17 +498,30 @@ try {
   await click('#edit-plan');check(await evaluate("document.querySelector('#include-fish').checked"),'Edit preserves explicit fish preference');
   await generate('pescatarian',25);
   await click('#meal-plan-tab');
-  check(await evaluate("!document.querySelector('#meal-plan-ready').hidden && document.querySelector('#meal-plan-results').hidden && document.querySelector('.meal-plan-subtitle').textContent==='Turn your grocery basket into simple meal ideas.' && document.querySelector('#meal-plan-ready p').textContent==='Use the groceries already in your basket to build your meal plan.'"),'Unlocked Meal Plan shows the connected empty state');
+  check(await evaluate(`!document.querySelector('#meal-plan-ready').hidden && document.querySelector('#meal-plan-results').hidden && document.querySelector('.meal-plan-subtitle').textContent==="Your groceries are ready. Let's plan some meals." && document.querySelector('#meal-ready-copy').textContent==="Use the foods already in your basket."`),'Unlocked Meal Plan shows the connected empty state');
   await layout('#meal-plan-view','meal-ready');
   const mealReadyMetrics=await evaluate("(()=>{const c=document.querySelector('#meal-plan-ready').getBoundingClientRect(),b=document.querySelector('#create-meal-plan').getBoundingClientRect();document.querySelector('#create-meal-plan').focus();return {width:c.width,height:c.height,buttonHeight:b.height,focused:document.activeElement.id}})()");
-  check(mealReadyMetrics.width<=801 && mealReadyMetrics.height<330 && mealReadyMetrics.buttonHeight>=52 && mealReadyMetrics.focused==='create-meal-plan','Unlocked Meal Plan card is compact and keyboard ready '+JSON.stringify(mealReadyMetrics));
+  check(mealReadyMetrics.width<=761 && mealReadyMetrics.height<330 && mealReadyMetrics.buttonHeight>=52 && mealReadyMetrics.focused==='create-meal-plan','Unlocked Meal Plan card is compact and keyboard ready '+JSON.stringify(mealReadyMetrics));
   await click('#planner-tab');
   await click('#alternative-plan');await until(()=>evaluate("document.querySelector('#grocery-plan-loader').hidden && !document.querySelector('#alternative-plan').disabled"),'alternative complete',120000);
   check(await evaluate("!document.querySelector('#plan-results').hidden && document.querySelector('#plan-results-title').textContent==='Your Grocery Basket' && document.querySelector('#planner-essentials').getClientRects().length===0"),'Alternative keeps single result heading');
   check(await evaluate("document.querySelector('#start-shopping-from-plan').textContent==='Continue to Shopping Budget' && document.querySelector('#next-actions-title').textContent==='Your grocery plan is ready.'"),'Grocery Plan points to Shopping Budget');
   await click('#start-shopping-from-plan');await until(()=>evaluate("!document.querySelector('#budget-dashboard').hidden"),'shopping budget');
   check(await evaluate("document.querySelector('#budget-view-title').previousElementSibling.textContent==='Step 3 of 4' && document.querySelector('#budget-open-meal').textContent==='Continue to Meal Plan'"),'Shopping Budget is Step 3 and points to Meal Plan');
-  await click('#budget-open-meal');await until(()=>evaluate("!document.querySelector('#meal-plan-ready').hidden"),'meal ready');
+  check(await evaluate("document.querySelector('[data-progress-step=snap]').classList.contains('is-complete') && document.querySelector('[data-progress-step=planner]').classList.contains('is-complete') && document.querySelector('[data-progress-step=budget]').getAttribute('aria-current')==='step'"),'Progress marks Store and Plan complete with Shop current');
+  await click('#select-all-shopping');
+  check(await evaluate("!document.querySelector('#shopping-completion').hidden && document.querySelector('.budget-next-step').hidden && document.querySelector('#shopping-completion-title').textContent==='All done shopping?' && document.querySelector('#shopping-complete-open-meal').textContent==='Continue to Meal Plan'"),'All planned checklist items reveal one completion path');
+  for(const width of [390,320]) {
+    await cdp('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:false});await delay(100);
+    const flowLayout=await evaluate("(()=>{const progress=document.querySelector('#workflow-progress'),panel=document.querySelector('#shopping-completion'),button=document.querySelector('#shopping-complete-open-meal'),pr=progress.getBoundingClientRect(),r=panel.getBoundingClientRect(),b=button.getBoundingClientRect();return {progressFits:pr.left>=0&&pr.right<=innerWidth+1,labelsFit:[...progress.querySelectorAll('li>span:last-child')].every(label=>label.scrollWidth<=label.clientWidth+1),panelFits:r.left>=0&&r.right<=innerWidth+1,buttonFits:b.left>=r.left&&b.right<=r.right,overflow:document.documentElement.scrollWidth>innerWidth+1}})()");
+    check(flowLayout.progressFits&&flowLayout.labelsFit&&flowLayout.panelFits&&flowLayout.buttonFits&&!flowLayout.overflow,'Progress and completion panel fit at '+width+' '+JSON.stringify(flowLayout));
+  }
+  await cdp('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+  await click('[data-shopping-check]');
+  check(await evaluate("document.querySelector('#shopping-completion').hidden && !document.querySelector('.budget-next-step').hidden"),'Unchecking one planned item restores the normal Meal Plan path');
+  await click('[data-shopping-check]');
+  await click('#shopping-complete-open-meal');await until(()=>evaluate("!document.querySelector('#meal-plan-ready').hidden"),'meal ready');
+  check(await evaluate("document.querySelector('[data-progress-step=budget]').classList.contains('is-complete') && document.querySelector('[data-progress-step=meal]').getAttribute('aria-current')==='step'"),'Progress marks Shop complete and Meals current');
   await click('#create-meal-plan');await until(()=>evaluate("!document.querySelector('#meal-plan-results').hidden"),'real meals',60000);
   check(await evaluate("!document.querySelector('#meal-source-summary').textContent.includes(window.currentPlan.context.location.locality) && !!window.currentPlan.context.selected_store"),'Meal summary omits locality while plan retains store context');
   const longMealPlan=await evaluate(`(async()=>{const plan=window.currentPlan,context={...plan.context,days:10};const response=await fetch('/api/meal-plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({groceries:plan.result.groceries.map(item=>({product_id:String(item.product_id),quantity:item.quantity})),people:context.people,days:context.days,diet:context.diet,food_group_exclusions:context.food_group_exclusions||[],foods_to_avoid:context.foods_to_avoid||[],nutrition_focus:context.nutrition_focus||'none',targets:context.targets||{}})});const data=await response.json();data.recipe_directions_ai_assisted=true;data.days[0].meals[0].directions=['Legacy saved direction'];window.generatedMealPlan=data;document.dispatchEvent(new CustomEvent('nutricart:open-saved-meal',{detail:{data:{mealPlan:data,groceries:plan.result.groceries,context}}}));return {status:response.status,days:data.days?.length||0,meals:data.days?.flatMap(day=>day.meals||[]).length||0}})()`);
@@ -519,6 +534,7 @@ try {
   check(generatedMealQuality.fishTitles>0 && generatedMealQuality.fishTitles<generatedMealQuality.titles.length,'Pescatarian meals use available fish without putting fish in every meal');
   const renderedMealCards=await evaluate("(()=>{const cards=[...document.querySelectorAll('.meal-card')];return {cards:cards.length,basketFoods:cards.filter(card=>card.querySelector('.meal-product-details summary')?.textContent==='Basket foods').length,directions:document.querySelectorAll('.meal-directions').length,howTo:cards.filter(card=>card.textContent.includes('How to make it')).length,aiNote:Boolean(document.querySelector('#meal-ai-note'))}})()");
   check(renderedMealCards.cards>0 && renderedMealCards.basketFoods===renderedMealCards.cards && renderedMealCards.directions===0 && renderedMealCards.howTo===0 && !renderedMealCards.aiNote,'Meal cards retain basket provenance without recipe directions '+JSON.stringify(renderedMealCards));
+  check(await evaluate("document.querySelector('#meal-basket-nutrition').textContent.includes('Daily reference:') && !document.querySelector('#meal-basket-nutrition').textContent.includes('Target:') && document.querySelector('.basket-nutrition-reference-note').textContent.includes('not personalized nutrition recommendations')"),'Basket Nutrition uses general daily-reference wording');
   check(await evaluate("document.querySelector('#meal-plan-title').textContent==='Your Meal Plan' && document.querySelector('#meal-plan-context').textContent==='10 days · 3 people · Pescatarian' && document.querySelector('#meal-results-title').textContent==='Daily Meals' && document.querySelector('#meal-rotation-note').textContent==='A 7-day meal rotation for your 10-day grocery plan.'"),'Generated Meal Plan presents one connected hierarchy with accurate plan context and rotation');
   await evaluate("document.querySelector('.meal-product-details summary').focus()");
   await cdp('Input.dispatchKeyEvent',{type:'rawKeyDown',key:' ',code:'Space',windowsVirtualKeyCode:32,nativeVirtualKeyCode:32});await cdp('Input.dispatchKeyEvent',{type:'keyUp',key:' ',code:'Space',windowsVirtualKeyCode:32,nativeVirtualKeyCode:32});
@@ -536,6 +552,8 @@ try {
   await click('#meal-plan-tab');
   await click('#meal-back-to-budget');
   check(await evaluate("(()=>{const name=window.currentPlan.context.selected_store.name.trim(),label=document.querySelector('#budget-store-context');return !label.hidden && label.textContent==='Selected SNAP retailer: '+name && !label.textContent.includes(window.currentPlan.context.location?.locality||'__no_locality__')})()"),'Shopping Budget labels the selected SNAP retailer without a locality fallback');
+  await click('#reset-shopping-checks');
+  check(await evaluate("document.querySelector('#shopping-completion').hidden && !document.querySelector('.budget-next-step').hidden"),'Resetting planned purchases clears the completion state');
   await layout('#shopping-budget-view','shopping');
   for(const width of [1440,390,320]) {
     await cdp('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:width<=390});await delay(200);

@@ -21,6 +21,9 @@
   const budgetLocked = document.querySelector("#shopping-budget-locked");
   const budgetLockedAction = document.querySelector("#budget-locked-action");
   const budgetDashboard = document.querySelector("#budget-dashboard");
+  const workflowProgress = document.querySelector("#workflow-progress");
+  const workflowProgressStatus = document.querySelector("#workflow-progress-status");
+  const workflowProgressSteps = [...workflowProgress.querySelectorAll("[data-progress-step]")];
 
   // This is the authoritative planner submit path. Bind it before querying or
   // wiring optional cross-feature UI so both button and Enter-key submissions
@@ -69,6 +72,8 @@
   let activeGeneration = null;
   let alternativeHistory = [];
   let activeView = snapView;
+  let activeViewName = "home";
+  let shoppingComplete = false;
   let viewTransitioning = false;
   let feasibilityTimer = null;
   let feasibilityController = null;
@@ -115,6 +120,27 @@
       : {view: "snap", label: "Find SNAP Stores"};
   }
 
+  function updateWorkflowProgress() {
+    const order = ["snap", "planner", "budget", "meal"];
+    const names = {snap: "Store", planner: "Plan", budget: "Shop", meal: "Meals"};
+    const currentIndex = order.indexOf(activeViewName);
+    workflowProgress.hidden = currentIndex < 0;
+    if (currentIndex < 0) return;
+    const completion = {snap: hasPlanningLocation() && hasPlanningStore(), planner: hasCurrentBasket(), budget: shoppingComplete};
+    workflowProgressSteps.forEach((step, index) => {
+      const key = step.dataset.progressStep;
+      const current = index === currentIndex;
+      const complete = index < currentIndex && Boolean(completion[key]);
+      step.classList.toggle("is-current", current);
+      step.classList.toggle("is-complete", complete);
+      if (current) step.setAttribute("aria-current", "step");
+      else step.removeAttribute("aria-current");
+      step.setAttribute("aria-label", `${names[key]}, ${current ? "current step" : complete ? "complete" : "not complete"}`);
+      step.querySelector(".workflow-progress-marker").textContent = complete ? "✓" : String(index + 1);
+    });
+    workflowProgressStatus.textContent = `${names[activeViewName]}, step ${currentIndex + 1} of 4`;
+  }
+
   function updateWorkflowState() {
     const basketReady = hasCurrentBasket();
     const plannerReady = basketReady || (hasPlanningLocation() && hasPlanningStore());
@@ -148,6 +174,7 @@
     setTabLock(plannerTab, !plannerReady, "Grocery Planner, locked until a SNAP-authorized store is selected", "Grocery Planner");
     setTabLock(mealTab, !basketReady, "Meal Plan, locked until a grocery basket is created", "Meal Plan");
     setTabLock(budgetTab, !budgetReady, "Shopping Budget, locked until a grocery basket is created", "Shopping Budget");
+    updateWorkflowProgress();
   }
 
   window.NutriCartWorkflow = {
@@ -177,6 +204,9 @@
     updateWorkflowState();
     document.querySelector("#home").hidden = name !== "home";
     document.querySelector(".locator").hidden = name === "home";
+    activeViewName = name;
+    updateWorkflowProgress();
+    if (name !== "home") workflowProgress.scrollIntoView({behavior: "instant", block: "start"});
     snapView.setAttribute("aria-labelledby", name === "home" ? "planner-title" : "snap-tab locator-title");
     if (name === "home") document.querySelector("#home-button").setAttribute("aria-current", "page");
     else document.querySelector("#home-button").removeAttribute("aria-current");
@@ -991,6 +1021,10 @@
   });
   document.addEventListener("nutricart:navigate", event => {
     if (["planner", "meal", "budget", "snap"].includes(event.detail?.view)) switchView(event.detail.view);
+  });
+  document.addEventListener("nutricart:shopping-progress", event => {
+    shoppingComplete = Boolean(event.detail?.complete);
+    updateWorkflowProgress();
   });
   document.addEventListener("nutricart:store-changed", () => {
     if (hasCurrentBasket()) invalidateCurrentPlanForLocation();

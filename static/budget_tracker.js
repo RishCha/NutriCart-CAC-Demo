@@ -33,6 +33,8 @@
   const hideCollected = document.querySelector("#hide-collected");
   const resetShoppingChecks = document.querySelector("#reset-shopping-checks");
   const selectAllShopping = document.querySelector("#select-all-shopping");
+  const shoppingCompletion = document.querySelector("#shopping-completion");
+  const budgetNextStep = document.querySelector(".budget-next-step");
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
   let startingCents = 0;
@@ -50,6 +52,7 @@
   let ignoreNextBudgetPlanUpdate = false;
   let restoredShoppingSession = false;
   let purchaseSuccessTimer = null;
+  let shoppingComplete = false;
 
   function parseCents(raw, allowZero = false) {
     const normalized = String(raw).trim().replace(/^\$/, "").replace(/,/g, "");
@@ -303,6 +306,7 @@
     shoppingItems.forEach(item => { item.checked = Boolean(linkedPurchase(item)); });
     const total = shoppingItems.length;
     const collected = shoppingItems.filter(item => item.checked).length;
+    const complete = total > 0 && collected === total;
     shoppingListReady.hidden = total === 0;
     shoppingListLink.hidden = total === 0;
     shoppingListEmpty.hidden = total > 0;
@@ -316,6 +320,12 @@
     const visible = hideCollected.checked ? shoppingItems.filter(item => !item.checked) : shoppingItems;
     shoppingListItems.replaceChildren(...visible.map(shoppingRow));
     document.querySelector("#shopping-list-all-collected").hidden = !(hideCollected.checked && total > 0 && collected === total);
+    shoppingCompletion.hidden = !complete;
+    budgetNextStep.hidden = complete;
+    if (complete !== shoppingComplete) {
+      shoppingComplete = complete;
+      document.dispatchEvent(new CustomEvent("nutricart:shopping-progress", {detail: {complete, collected, total}}));
+    }
     if (focusKey) shoppingListItems.querySelector(`[data-shopping-check="${focusKey}"]`)?.focus();
   }
 
@@ -413,9 +423,9 @@
   [document.querySelector("#create-grocery-plan"), document.querySelector("#shopping-list-create-plan")].forEach(button => button.addEventListener("click", () => {
     document.dispatchEvent(new CustomEvent("nutricart:navigate", {detail: {view: "planner"}}));
   }));
-  document.querySelector("#budget-open-meal").addEventListener("click", () => {
+  [document.querySelector("#budget-open-meal"), document.querySelector("#shopping-complete-open-meal")].forEach(button => button.addEventListener("click", () => {
     document.dispatchEvent(new CustomEvent("nutricart:navigate", {detail: {view: "meal"}}));
-  });
+  }));
 
   shoppingListItems.addEventListener("change", event => {
     const checkbox = event.target.closest("[data-shopping-check]");

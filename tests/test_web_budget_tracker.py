@@ -36,7 +36,7 @@ class ShoppingBudgetPageTests(unittest.TestCase):
         self.assertIn('id="purchase-store-disclosure"', self.page)
         self.assertIn("+ Add store (optional)", self.page)
         self.assertIn("Record Purchase", self.page)
-        self.assertIn("budget_tracker.js?v=account-signout-73", self.page)
+        self.assertIn("budget_tracker.js?v=workflow-78", self.page)
         self.assertNotIn('id="budget-percent"', self.page)
         self.assertNotIn('id="budget-status-copy"', self.page)
         self.assertIn('aria-label="Budget remaining"', self.page)
@@ -405,6 +405,20 @@ class ShoppingBudgetPageTests(unittest.TestCase):
         self.assertIn("label.append(checkbox", row)
         self.assertIn('[data-high-contrast="true"] .shopping-list-panel', self.styles)
         self.assertIn('[data-text-size="extra-large"] .shopping-list-row', self.styles)
+
+
+    def test_planned_checklist_controls_completion_without_changing_accounting(self):
+        render = self.script.split("function renderShoppingList", 1)[1].split("function updateShoppingList", 1)[0]
+        self.assertIn("const complete = total > 0 && collected === total", render)
+        self.assertIn("shoppingCompletion.hidden = !complete", render)
+        self.assertIn("budgetNextStep.hidden = complete", render)
+        self.assertIn('CustomEvent("nutricart:shopping-progress"', render)
+        self.assertIn("linkedPurchase(item)", render)
+        self.assertNotIn("spentCents()", render)
+        self.assertIn('document.querySelector("#shopping-complete-open-meal")', self.script)
+        self.assertIn('detail: {view: "meal"}', self.script)
+        self.assertIn('id="shopping-completion"', self.page)
+        self.assertIn("Your grocery basket is ready for meal planning.", self.page)
 
 
 if __name__ == "__main__":

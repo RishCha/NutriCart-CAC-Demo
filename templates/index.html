@@ -6,7 +6,7 @@
   <title>NutriCart</title>
   {% set brand_icon %}{% include "nutricart-logo.svg" %}{% endset %}
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,{{ brand_icon|urlencode }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='saved-cards-74b') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='workflow-78') }}">
 </head>
 <body>
   <main class="shell">
@@ -34,6 +34,16 @@
         </div>
       </div>
     </header>
+
+    <nav id="workflow-progress" class="workflow-progress" aria-label="NutriCart progress" hidden>
+      <ol>
+        <li data-progress-step="snap"><span class="workflow-progress-marker" aria-hidden="true">1</span><span>Store</span></li>
+        <li data-progress-step="planner"><span class="workflow-progress-marker" aria-hidden="true">2</span><span>Plan</span></li>
+        <li data-progress-step="budget"><span class="workflow-progress-marker" aria-hidden="true">3</span><span>Shop</span></li>
+        <li data-progress-step="meal"><span class="workflow-progress-marker" aria-hidden="true">4</span><span>Meals</span></li>
+      </ol>
+      <p id="workflow-progress-status" class="sr-only" aria-live="polite"></p>
+    </nav>
 
     <div id="settings-backdrop" class="settings-backdrop" hidden></div>
     <aside id="settings-dialog" class="settings-drawer" role="dialog" aria-modal="true" aria-labelledby="settings-title" hidden tabindex="-1">
@@ -223,7 +233,7 @@
     </section>
 
     <section id="meal-plan-view" class="app-view meal-plan-view" role="tabpanel" tabindex="-1" hidden aria-labelledby="meal-plan-tab meal-plan-title">
-      <header class="meal-plan-heading" hidden><p class="workflow-step-label">Step 4 of 4</p><h1 id="meal-plan-title">Meal Plan</h1><p id="meal-plan-context" class="journey-source" hidden></p><p class="meal-plan-subtitle">Turn your grocery basket into simple meal ideas.</p></header>
+      <header class="meal-plan-heading" hidden><p class="workflow-step-label">Step 4 of 4</p><h1 id="meal-plan-title">Meal Plan</h1><p id="meal-plan-context" class="journey-source" hidden></p><p class="meal-plan-subtitle">Your groceries are ready. Let's plan some meals.</p></header>
       <section id="meal-plan-empty" class="workflow-locked-card" role="status" aria-live="polite" aria-labelledby="meal-empty-title">
         <span class="workflow-lock-badge" aria-hidden="true"><svg class="workflow-lock-svg" viewBox="0 0 24 24" focusable="false"><rect x="5" y="10" width="14" height="10" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path></svg></span>
         <p class="workflow-step-label">Step 4 of 4</p>
@@ -231,9 +241,8 @@
         <p class="workflow-locked-message">Create your grocery basket first to unlock meal ideas.</p>
         <button id="create-plan-from-meals" class="primary" type="button">Find SNAP Stores</button>
       </section>
-      <section id="meal-plan-ready" class="meal-ready-state" hidden aria-labelledby="meal-ready-title">
-        <h2 id="meal-ready-title">Create meals from your basket</h2>
-        <p>Use the groceries already in your basket to build your meal plan.</p>
+      <section id="meal-plan-ready" class="meal-ready-state" hidden aria-labelledby="meal-plan-title" aria-describedby="meal-ready-copy">
+        <p id="meal-ready-copy">Use the foods already in your basket.</p>
         <button id="create-meal-plan" class="primary" type="button" data-cursor-effect="create-meal-plan">Create Meal Plan</button>
       </section>
       <p id="meal-plan-status" class="status" role="status" aria-live="polite"></p>
@@ -243,6 +252,7 @@
         <section class="basket-nutrition-overview" aria-labelledby="basket-nutrition-title">
           <h2 id="basket-nutrition-title">Basket Nutrition</h2>
           <p class="meal-note">Average per person, per day</p>
+          <p class="basket-nutrition-reference-note">Reference values are general daily guidelines and are not personalized nutrition recommendations.</p>
           <div id="meal-basket-nutrition"></div>
         </section>
         <div class="action-row peer-action-row"><button id="meal-back-to-budget" class="secondary" type="button">Back to Shopping Budget</button><button id="meal-back-to-plan" class="secondary" type="button">Back to Grocery Plan</button><button id="save-meal-plan" class="secondary" type="button"{% if not accounts_enabled %} hidden{% endif %}>Save Meal Plan</button><button id="meal-compare-basket" class="secondary" type="button">Compare This Basket</button><button id="meal-find-snap" class="secondary" type="button">Find SNAP Stores</button></div>
@@ -311,6 +321,7 @@
         </section>
 
         </div>
+        <section id="shopping-completion" class="shopping-completion-panel" hidden aria-labelledby="shopping-completion-title"><div><h2 id="shopping-completion-title">All done shopping?</h2><p>Your grocery basket is ready for meal planning.</p></div><button id="shopping-complete-open-meal" class="primary" type="button">Continue to Meal Plan</button></section>
         <details id="additional-purchases" class="additional-purchases"><summary>Add another purchase</summary>
         <section class="budget-controls-grid budget-reveal">
           <form id="purchase-form" class="budget-panel budget-purchase-panel" novalidate>
@@ -385,10 +396,10 @@
   <script src="{{ url_for('static', filename='password_fields.js', v='signup-guidance-76') }}" defer></script>
   <script src="{{ url_for('static', filename='account.js', v='signup-guidance-76') }}" defer></script>
   <script src="{{ url_for('static', filename='app.js', v='account-signout-73') }}" defer></script>
-  <script src="{{ url_for('static', filename='grocery.js', v='account-home-74c') }}" defer></script>
+  <script src="{{ url_for('static', filename='grocery.js', v='workflow-78') }}" defer></script>
   <script src="{{ url_for('static', filename='price_comparison.js', v='location-planning-1') }}" defer></script>
-  <script src="{{ url_for('static', filename='meal_plan.js', v='diet-signout-73') }}" defer></script>
-  <script src="{{ url_for('static', filename='budget_tracker.js', v='account-signout-73') }}" defer></script>
+  <script src="{{ url_for('static', filename='meal_plan.js', v='workflow-78') }}" defer></script>
+  <script src="{{ url_for('static', filename='budget_tracker.js', v='workflow-78') }}" defer></script>
   {% if vercel_analytics_enabled %}
   <script>
     window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
