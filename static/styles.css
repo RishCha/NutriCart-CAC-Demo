@@ -480,6 +480,7 @@ input:disabled { cursor: not-allowed; opacity: .58; background: #edf1ef; }
   .nutricart-food-canvas { display: none !important; }
 }
 .price-comparison-panel { margin-top: 1.5rem; padding: clamp(1.2rem, 3vw, 2rem); border: 1px solid #d8e1db; border-radius: 18px; background: #f8fbf9; }
+#comparison-error:empty { display: none; }
 .comparison-stores { display: grid; gap: .7rem; margin: 1.25rem 0; padding: 0; border: 0; }
 .comparison-stores legend { margin-bottom: .7rem; font-weight: 600; }
 .comparison-stores legend span, .price-disclaimer { color: #63736a; font-size: .85rem; }
@@ -1202,6 +1203,7 @@ body {
   box-shadow: 0 5px 18px #17352a0d;
   backdrop-filter: blur(12px);
 }
+.site-header .brand { align-items: center; }
 .site-header .view-tabs { grid-column: 2; grid-row: 1; justify-content: flex-start; gap: clamp(8px, 1.4vw, 20px); }
 .site-header .tab {
   position: relative;
@@ -1257,7 +1259,12 @@ body {
   .site-header .view-tabs { grid-column: 1 / -1; grid-row: 2; justify-content: flex-start; padding-top: 6px; border-top: 1px solid var(--line); }
 }
 @media (max-width: 600px) {
-  .site-header { top: 6px; margin-top: 6px; padding: 8px 10px 10px; border-radius: 18px; }
+  .shell .site-header { top: 6px; margin-top: 6px; padding: 8px 10px 10px; border-radius: 18px; grid-template-columns: max-content minmax(0, 1fr); column-gap: 6px; }
+  .site-header .header-utilities { min-width: 0; max-width: 100%; gap: 4px; }
+  .site-header .account-menu-wrap { min-width: 0; }
+  .site-header .account-button { max-width: 100%; gap: 4px; padding-inline: 6px; }
+  .site-header #account-button-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .site-header .account-avatar, .site-header .account-chevron { flex-shrink: 0; }
   .site-header .view-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; max-width: 100%; gap: 0 8px; overflow: visible; }
   .site-header .view-tabs .tab { width: 100%; min-width: 0; white-space: normal; }
 }
@@ -1536,7 +1543,8 @@ body {
 .grocery-receipt .grocery-group h4 { padding: 0 2px 7px; border-bottom: 1px solid #9db6a5; color: var(--green-dark); font-size: .76rem; letter-spacing: .1em; }
 .grocery-receipt .grocery-item { display: grid; grid-template-columns: minmax(0, 1fr) max-content; gap: 3px 14px; min-width: 0; padding: 10px 2px; border-bottom: 1px solid #e2e8e3; }
 .grocery-item-name { grid-column: 1 / -1; min-width: 0; max-width: 100%; font-size: .94rem; line-height: 1.32; overflow-wrap: anywhere; }
-.grocery-receipt .grocery-item-meta { grid-column: 1; min-width: 0; color: var(--muted); font-size: .82rem; line-height: 1.35; overflow-wrap: anywhere; }
+.grocery-receipt .grocery-item-amount { grid-column: 1; margin: 0; min-width: 0; font-size: .88rem; line-height: 1.4; }
+.grocery-receipt .grocery-item-meta { grid-column: 1 / -1; min-width: 0; color: var(--muted); font-size: .82rem; line-height: 1.35; overflow-wrap: anywhere; }
 .grocery-receipt .grocery-item-total { grid-column: 2; grid-row: 2; align-self: baseline; color: var(--dark); font-size: .95rem; white-space: nowrap; }
 .receipt-summary { display: grid; gap: 0; margin-top: 22px; padding-top: 12px; border-top: 2px solid var(--green-dark); }
 .receipt-total, .receipt-score { display: grid; grid-template-columns: minmax(0, 1fr) max-content; align-items: baseline; gap: 12px; padding: 5px 2px; }
@@ -1566,14 +1574,10 @@ body {
 
 /* Catalog-derived planner feasibility guidance. */
 .feasibility-fields > label { align-content: start; }
-.feasibility-guidance { display: block; min-height: 2.7em; margin-top: 7px; color: var(--muted); font-size: .76rem; font-weight: 550; line-height: 1.35; }
-.feasibility-guidance.is-calculated { color: var(--green-dark); }
 .feasibility-status { min-height: 0; margin: 10px 0 0; color: var(--muted); font-size: .84rem; line-height: 1.4; }
 .feasibility-status:empty { display: none; }
 .feasibility-status.is-infeasible { padding: 10px 12px; border-left: 3px solid var(--peach); border-radius: 8px; background: #fff7ef; color: var(--dark); }
-[data-high-contrast="true"] .feasibility-guidance.is-calculated { color: var(--green-dark); font-weight: 750; }
 [data-high-contrast="true"] .feasibility-status.is-infeasible { border: 2px solid currentColor; background: #fff; }
-@media (max-width: 700px) { .feasibility-guidance { min-height: 0; } }
 
 /* Text-only landing page; no empty columns reserved for promotional imagery. */
 #snap-view .landing-hero { display: block; min-height: 0; padding: clamp(12px, 2vw, 24px) 0; }
@@ -2099,3 +2103,6 @@ body.new-trip-open { overflow: hidden; }
 .new-trip-dialog button:focus-visible { outline: 3px solid var(--green-dark); outline-offset: 3px; }
 @media (max-width: 700px) { .meal-completion-actions { align-items: stretch; } .meal-new-trip-action { width: 100%; } .meal-new-trip-action > button { width: 100%; } }
 @media (max-width: 480px) { .new-trip-dialog .action-row { flex-direction: column; align-items: stretch; } }
+
+/* Model arithmetic stays secondary to the amount a shopper needs. */
+.shopping-workspace .shopping-list-model { grid-column: 2; color: var(--muted); font-size: .78rem; line-height: 1.4; overflow-wrap: break-word; }

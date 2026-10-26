@@ -10,15 +10,25 @@ NutriCart is a Flask application. The root `app.py` exports `app`, and Vercel ru
 - Guest grocery planning, meal planning, SNAP retailer search, and shopping-budget tools remain available.
 - Example groceries are not linked to retailer inventory or observed retailer prices.
 
-`build_vercel.py` validates the demonstration data and copies the reviewed static assets to generated `public/static`. Generated assets, virtual environments, databases, and instance files are excluded from publication. The NutriCart SVG is included through Flask templates.
+`build_vercel.py` validates the demonstration data and copies the reviewed static assets to generated `public/static`. Generated assets, virtual environments, databases, and instance files are excluded from publication. The NutriCart SVG is included through Flask templates. The unused official SNAP PNG is not included in current source, the release manifest, or published assets; the build removes only its obsolete generated copy if present. Historical Git versions and older deployments may retain the image; this release does not rewrite them.
 
 ## Hosting Configuration
 
 Set a stable `FLASK_SECRET_KEY` in encrypted Vercel environment settings. Secure cookies are enabled by default when `VERCEL=1`. Environment files are not loaded by this release.
 
-Location features use public USDA, Census Geocoder, and optional OpenStreetMap/Nominatim endpoints. Browser geolocation requires user permission and HTTPS, or loopback during local development.
+Location features use USDA SNAP retailer search and Census Geocoder for manually submitted addresses. Browser geolocation requires user permission and HTTPS, or loopback during local development. Valid device coordinates go directly to the USDA search; NutriCart no longer calls public Nominatim or another reverse-geocoding provider. No new provider configuration is needed.
+
+GPS searches display "Current location" without inventing a locality or showing coordinates. The existing coarse planning context stores this neutral marker as `locality: "Current location", region: ""`; it is not a verified locality. Manual searches retain Census-derived locality/region context. Coordinates stay in temporary search state and are omitted from saved-plan data. Store selection and suitability checks remain required before planning.
 
 The deployment manifest is recorded in `RELEASE_MANIFEST.txt`. The release was exported without private source-repository history or private catalog data.
+
+## Alternative Plan API
+
+`POST /api/grocery-plan/alternative` uses the existing planning fields plus a non-empty `excluded_product_ids` list (at most 20 unique, current catalog IDs). `previous_product_id_sets` may contain at most six non-empty unique-ID lists under the same limit. Unknown/duplicate/missing IDs are HTTP 400 errors, not alternative infeasibility.
+
+ID-only callers remain supported. The browser additionally sends `groceries` rows with `product_id` and positive integer `quantity`; when present, they must match the reference IDs and stay within the current plan's package limits. Prices, nutrition and required-change metadata supplied by a client are not trusted. All identities and candidate package arithmetic are resolved from the catalog.
+
+The existing diversity rule requires `min(n, max(2, ceil(n * 0.25)))` removed distinct food profiles from the original selection, where `n` is its number of distinct profiles. Package-quantity-only changes or another ID for the same food do not count. Historical comparisons retain the same capped threshold. The server checks actual selections, including every supplied history set, and returns its own counts. A valid but insufficiently different result is HTTP 422 with the existing honest message; it does not replace the current plan. Nutrition, diet, budget and optimizer weights remain authoritative and unchanged.
 
 ## Supabase Accounts and Saved Plans
 

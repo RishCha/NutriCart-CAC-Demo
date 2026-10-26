@@ -9,12 +9,14 @@ ROOT = Path(__file__).resolve().parent
 ASSETS = (
     "account.js", "app.js", "budget_tracker.js", "cursor_effects.js", "grocery.js",
     "meal_plan.js", "password_fields.js", "price_comparison.js", "reset_password.js",
-    "settings.js", "feedback.js", "styles.css", "images/usda-snap-logo.png",
+    "settings.js", "feedback.js", "styles.css", "quantity_display.js",
 )
 
 
 def build_assets(root=ROOT):
     root = Path(root)
+    # Remove only the retired logo if restored from an earlier build cache.
+    (root / "public" / "static" / "images" / "usda-snap-logo.png").unlink(missing_ok=True)
     for name in ASSETS:
         source = root / "static" / name
         target = root / "public" / "static" / name

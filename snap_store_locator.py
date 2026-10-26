@@ -15,7 +15,6 @@ SNAP_QUERY_URL = (
     "snap_retailer_location_data/FeatureServer/0/query"
 )
 CENSUS_GEOCODER_URL = "https://geocoding.geo.census.gov/geocoder/locations/onelineaddress"
-NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse"
 SNAP_OUT_FIELDS = (
     "Record_ID,Store_Name,Store_Street_Address,Additonal_Address,City,State,"
     "Zip_Code,County,Store_Type,Latitude,Longitude,Incentive_Program,Grantee_Name,ObjectId"
@@ -90,24 +89,6 @@ def geocode_address(address: str) -> tuple[float, float, str]:
     if not matched_address:
         raise RuntimeError("The Census Geocoder returned an incomplete address match.")
     return latitude, longitude, matched_address
-
-
-def reverse_geocode_coordinates(latitude: object, longitude: object) -> str | None:
-    """Return an approximate address without changing the supplied coordinates."""
-    latitude = _coordinate(latitude, "Latitude", -90, 90)
-    longitude = _coordinate(longitude, "Longitude", -180, 180)
-    response = request_json(NOMINATIM_REVERSE_URL, {
-        "lat": latitude,
-        "lon": longitude,
-        "format": "jsonv2",
-        "addressdetails": 1,
-        "zoom": 18,
-        "layer": "address",
-    })
-    matched_address = response.get("display_name")
-    if not isinstance(matched_address, str) or not matched_address.strip():
-        return None
-    return matched_address.strip()
 
 
 def haversine_miles(

@@ -36,7 +36,7 @@ The core workflow remains available without an account. When Supabase is configu
 
 The public demo uses an independently assembled catalog of generic foods with nutrition data from USDA FoodData Central. Example package sizes and prices are synthetic planning inputs, not guaranteed live retailer prices. SNAP-authorized retailer information comes from USDA retailer data and does not establish product inventory or item-level SNAP eligibility.
 
-Grocery plans treat the entered budget as a ceiling. The optimizer keeps nutrition floors and diet or exclusion rules authoritative, applies bounded soft penalties for missing useful food groups and protein-family variety, and retains a positive cost penalty so additional products are selected only when they improve the plan rather than merely spending unused budget.
+The entered budget is a ceiling, not a spending target. Plans must meet nutrition minimums and the selected diet and exclusions; some combinations are infeasible.
 
 NutriCart is not affiliated with or endorsed by USDA.
 
@@ -50,18 +50,34 @@ py -3.13 -m venv .venv
 .\.venv\Scripts\python.exe -B app.py
 ```
 
+Open http://127.0.0.1:5000 after Flask starts. Guest planning needs no account credentials or private database. Store searches need an internet connection.
+
 The public release always uses `data/demo`. Missing demonstration data causes startup to fail rather than falling back to private catalogs.
+
+Optional accounts require Supabase configuration; feedback requires Resend configuration and abuse protection. See [deployment notes](docs/vercel-demo.md) for setup and [.env.example](.env.example) for variable names. Set values in the process environment or host dashboard: this release does not load `.env` files.
 
 ## Testing
 
-Run the Python regression suite and browser UAT from the repository root:
+Run the Python regression suite from the repository root:
 
 ```powershell
 .\.venv\Scripts\python.exe -B -m unittest discover -s tests -v
+```
+
+The browser UAT also needs Node.js 22 or newer and Microsoft Edge on Windows. It uses a fresh browser profile and mocked account operations, not your existing sign-in session. Set `EDGE_PATH` if the browser executable is elsewhere. Run:
+
+```powershell
 node tests/uat_demo_catalog.mjs
 ```
 
 The suite covers catalog safety, planning constraints, diet rules, workflow state, feedback protections, responsive layouts, and the connected shopping flow.
+
+## Limitations
+
+- A SNAP-authorized retailer is not a guarantee of inventory, prices, or item-level eligibility.
+- Meal ideas use foods in the current basket; they do not provide exact portions or cooking directions.
+- Guest trips remain in page memory and are lost on reload unless saved with a configured account.
+- Location lookup, account email, and feedback depend on external services and their availability limits.
 
 ## AI Assistance
 

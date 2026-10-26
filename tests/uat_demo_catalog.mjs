@@ -25,6 +25,32 @@ let nextId = 0;
 let serverOutput = "";
 const pending = new Map();
 const browserErrors = [];
+// Only upstream transport is replaced. Flask routes, coordinates, USDA-record
+// normalization, distance filtering, planning and meal generation remain real.
+const locationFixtureServer = String.raw`
+import sys, urllib.request, requests
+import snap_store_locator as locator
+import app
+
+def no_external_requests(*args, **kwargs):
+    raise AssertionError("Unexpected external request in offline browser UAT")
+
+def fixture_json(url, parameters, timeout=10.0):
+    if url == locator.CENSUS_GEOCODER_URL:
+        return {"result":{"addressMatches":[{"matchedAddress":"142 W Fifth Ave, Anchorage, AK, 99501","coordinates":{"x":-149.9003,"y":61.2181}}]}}
+    if url == locator.SNAP_QUERY_URL:
+        longitude, latitude = map(float, parameters["geometry"].split(","))
+        records = [{"attributes":{"Record_ID":"offline-"+str(index),"Store_Name":"Fixture Grocery "+chr(65+index),"Store_Type":"Supermarket","Store_Street_Address":"Public fixture "+str(index),"City":"Anchorage","State":"AK","Zip_Code":"99501","Latitude":latitude+.0002*(index+1),"Longitude":longitude}} for index in range(23)]
+        records.append({"attributes":{"Record_ID":"outside-radius","Store_Name":"Distant fixture","Store_Type":"Supermarket","Latitude":latitude-10,"Longitude":longitude}})
+        return {"features":records,"exceededTransferLimit":False}
+    raise AssertionError("Unapproved provider in offline browser UAT")
+
+locator.request_json = fixture_json
+urllib.request.urlopen = no_external_requests
+requests.sessions.Session.request = no_external_requests
+app.app.run(host="127.0.0.1", port=int(sys.argv[1]), use_reloader=False)
+`;
+
 
 function localGet(url) {
   return new Promise((resolve, reject) => {
@@ -81,7 +107,7 @@ try {
   const url = externalUrl || `http://127.0.0.1:${port}`;
   assert.equal(new URL(url).hostname, '127.0.0.1', 'UAT must use the local NutriCart server');
   if (!externalUrl) {
-  server = spawn(pythonPath, ["-B", "-m", "flask", "--app", "app", "run", "--host", "127.0.0.1", "--port", String(port), "--no-reload"], {
+  server = spawn(pythonPath, ["-B", "-c", locationFixtureServer, String(port)], {
     cwd: root, windowsHide: true,
     env: {...process.env, VERCEL: "1", NUTRICART_CATALOG_MODE: "demo", NUTRICART_DATABASE: path.join(runtime, "accounts.db"), FLASK_DEBUG: "0", PYTHONDONTWRITEBYTECODE: "1",
       PYTHON_DOTENV_DISABLED: "1", FLASK_SKIP_DOTENV: "1", NUTRICART_FEEDBACK_TO: "", SUPABASE_URL: "", SUPABASE_ANON_KEY: ""},
@@ -130,11 +156,14 @@ try {
 
 
 
-  const checks=[], assets=[], lockedCardMetrics={};
+  const checks=[], assets=[], locationRequests=[], lockedCardMetrics={};
+  socket.addEventListener('message',event=>{const m=JSON.parse(event.data);if(m.method==='Network.requestWillBeSent')locationRequests.push(m.params.request.url);});
   socket.addEventListener('message',event=>{const m=JSON.parse(event.data);if(m.method==='Network.responseReceived' && m.params.response.url.includes('/static/')) assets.push({url:new URL(m.params.response.url).pathname,status:m.params.response.status});});
   await cdp('Network.enable');await cdp('Network.setCacheDisabled',{cacheDisabled:true});
   await cdp('Page.reload',{ignoreCache:true});await until(()=>evaluate("document.readyState==='complete' && Boolean(window.NutriCartSettings)"),'scripts after hard refresh');
   const check=(value,name)=>{assert(value,name);checks.push(name);console.log('PASS:',name);};
+  check((await localGet(url+'/static/images/usda-snap-logo.png')).status===404 && (await localGet(url+'/public/static/images/usda-snap-logo.png')).status===404,'Retired official SNAP logo has no public asset route');
+  check(await evaluate("!document.querySelector('img[src*=usda-snap-logo]') && document.querySelector('header .brand-mark svg')!==null"),'Custom NutriCart branding remains in use without the retired official logo');
   await evaluate("history.pushState({task73:true},'',location.pathname+'?task73-history=1');history.back()");
   await until(()=>evaluate("location.search===''"),'browser back navigation');
   check(await evaluate("document.readyState==='complete' && Boolean(window.NutriCartWorkflow) && !document.querySelector('#home').hidden"),'Browser Back preserves the loaded Home state');
@@ -148,11 +177,24 @@ try {
   }
   const fill=values=>evaluate(`(()=>{for(const [id,value] of Object.entries(${JSON.stringify(values)})){const n=document.getElementById(id);n.value=value;n.dispatchEvent(new Event('input',{bubbles:true}));}})()`);
 
+  async function verifyHeaderAlignment(signedIn) {
+    const measurements=[];
+    for(const [width,size] of [[1440,'normal'],[390,'normal'],[390,'large'],[390,'extra-large'],[375,'normal'],[320,'normal'],[320,'large'],[320,'extra-large']]) {
+      await cdp('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:width<500});
+      await evaluate(`NutriCartSettings.setSetting('textSize',${JSON.stringify(size)});window.scrollTo({top:0,behavior:'instant'})`);await cdp('Input.dispatchMouseEvent',{type:'mouseMoved',x:1,y:500});await delay(160);
+      const metric=await evaluate("(()=>{const b=s=>{const r=document.querySelector(s).getBoundingClientRect();return {center:r.top+r.height/2,left:r.left,right:r.right,width:r.width}};return {icon:b('#home-button .brand-mark'),wordmark:b('#home-button strong'),settings:b('#settings-button'),account:b('#account-button'),align:getComputedStyle(document.querySelector('#home-button')).alignItems,signedIn:document.querySelector('#account-button').classList.contains('is-signed-in'),overflow:document.documentElement.scrollWidth>innerWidth+1}})()");
+      check(metric.signedIn===signedIn&&metric.align==='center'&&!metric.overflow&&['icon','wordmark','account'].every(key=>Math.abs(metric[key].center-metric.settings.center)<1.1)&&metric.wordmark.right<metric.settings.left&&metric.account.right<=width,'Header contents are centered without overlap '+(signedIn?'signed-in':'guest')+' '+width+' '+size+' '+JSON.stringify(metric));
+      measurements.push({width,size,...metric});const shot=await cdp('Page.captureScreenshot',{format:'png'});await writeFile(path.join(artifacts,`header-${signedIn?'signed-in':'guest'}-${width}-${size}.png`),Buffer.from(shot.data,'base64'));
+    }
+    await writeFile(path.join(artifacts,`header-${signedIn?'signed-in':'guest'}-measurements.json`),JSON.stringify(measurements,null,2));
+    await cdp('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});await evaluate("NutriCartSettings.setSetting('textSize','normal')");
+  }
   async function progressState(active, completed=[]) {
     const state=await evaluate(`(()=>{const p=document.querySelector('#workflow-progress');return {hidden:p.hidden,steps:[...p.querySelectorAll('[data-progress-step]')].map(s=>({key:s.dataset.progressStep,current:s.getAttribute('aria-current')==='step',complete:s.classList.contains('is-complete'),label:s.getAttribute('aria-label'),icons:s.querySelectorAll('.workflow-progress-icon>svg').length,checkVisible:getComputedStyle(s.querySelector('.workflow-progress-complete')).display!=='none'})),interactive:!!p.querySelector('button,a,[tabindex]'),status:document.querySelector('#workflow-progress-status').textContent}})()`);
     check(state.hidden===!active && !state.interactive && (!active || state.steps.every(step=>step.current===(step.key===active)&&step.complete===completed.includes(step.key)&&step.checkVisible===step.complete&&step.icons===2&&step.label.includes(step.current?'current step':step.complete?'complete':'not complete'))),'Icon progress state '+(active||'Home')+' '+JSON.stringify(state));
   }
   await progressState(null);
+  await verifyHeaderAlignment(false);
   const layouts=[];
   async function layout(selector,name){
     for(const [width,height] of [[1920,1080],[1440,900],[1366,768],[1280,800],[1024,768],[768,1024],[390,844],[320,740]]) for(const size of ['normal','large','extra-large']) {
@@ -363,7 +405,7 @@ try {
   await click('#home-button');await click('#hero-find-snap');
   check(await evaluate("!document.querySelector('.locator').hidden"),'Start opens SNAP');
   check(await evaluate("document.querySelector('#detected-location').hidden && !document.querySelector('#snap-build-basket') && document.querySelector('.or').getClientRects().length>0"),'Initial SNAP state has no success panel, empty bar or continuation');
-  // Deterministic USDA-response fixtures cover cardinalities; the real endpoints are exercised next.
+  // Cardinality fixtures cover rendering; real Flask endpoints below use offline upstream fixtures.
   await evaluate(`window.realFetch=window.fetch;window.fixtureCount=0;window.fixtureNames=[];window.fixtureGeocodeFail=false;window.fetch=(url,opts)=>{
     if(url==='/api/geocode' && window.fixtureGeocodeFail)return Promise.resolve(new Response(JSON.stringify({error:'Address could not be found.'}),{status:400}));
     if(url==='/api/geocode')return Promise.resolve(new Response(JSON.stringify({latitude:61.2181,longitude:-149.9003,matched_address:'Public test fixture',planning_location:{locality:'Anchorage',region:'AK'}}),{status:200}));
@@ -376,6 +418,7 @@ try {
     if(count) {await click('[name=snap_store]');check(await evaluate("!!NutriCartStore.get() && !!document.querySelector('#snap-build-basket')"),'Fixture '+count+' selection enables continuation');}
     check(await evaluate(`document.querySelector('#retailer-count').dataset.displayedCount==='${Math.min(count,10)}'&&document.querySelector('#retailer-count').dataset.eligibleCount==='${count}'&&document.querySelector('#retailer-count').dataset.totalCount==='${count}'`),'Filtered, total and displayed counts are truthful for '+count+' records');
     if(count>10){
+      check(await evaluate("[...document.querySelectorAll('.store-suitability')].every(n=>n.textContent==='Suitable for grocery planning')&&!document.querySelector('#results').textContent.includes('Full grocery planning candidate')&&NutriCartStore.suitability({store_type:'SM'}).category==='full'"),'Store cards use Suitable for grocery planning while the full eligibility identifier remains unchanged');
       check(await evaluate("document.querySelector('#retailer-count').textContent==='Showing 10 of 23 grocery stores \u00b7 23 SNAP retailers nearby'&&!document.querySelector('#show-more').hidden&&document.querySelector('#show-more').getAttribute('aria-label').includes('10 of 23 shown')"),'Partial grocery counts expose the matching total and accessible pagination');
       await click('#show-more');await click('#show-more');
       check(await evaluate("document.querySelectorAll('.store-card').length===23&&document.querySelector('#show-more').hidden&&document.querySelector('#retailer-count').textContent==='Showing 23 grocery stores \u00b7 23 SNAP retailers nearby'&&document.querySelector('[name=snap_store][value=\"0\"]').checked"),'Show More reaches every matching store and preserves the selection');
@@ -455,19 +498,42 @@ try {
   check(await evaluate("document.querySelector('#detected-location').hidden && document.querySelector('#status').textContent.length>0 && !document.querySelector('#location-button').disabled"),'Denied geolocation shows a usable error without success');
   await cdp('Browser.grantPermissions',{origin:url,permissions:['geolocation']});
   await cdp('Emulation.setGeolocationOverride',{latitude:61.2181,longitude:-149.9003,accuracy:50});
-  await evaluate(`window.cardinalityFetch=window.fetch;window.fetch=(url,opts)=>url==='/api/reverse-geocode'?Promise.resolve(new Response(JSON.stringify({matched_address:null,planning_location:null}),{status:200})):window.cardinalityFetch(url,opts)`);
-  await click('#location-button');
-  check(await evaluate("document.querySelector('#detected-location').hidden && !NutriCartLocation.get() && document.querySelector('#status').textContent.includes('could not be resolved')"),'Unresolved device locality stays gated with visible address instruction');
+
   await evaluate('window.fetch=window.realFetch');
-  await cdp('Browser.grantPermissions',{origin:url,permissions:['geolocation']});
-  await cdp('Emulation.setGeolocationOverride',{latitude:61.2181,longitude:-149.9003,accuracy:50});
+  // Browser permission and coordinate acquisition are real; provider traffic is offline.
   await click('#location-button');
-  await until(()=>evaluate("!document.querySelector('#location-button').disabled && !!NutriCartLocation.get() && document.querySelectorAll('[name=snap_store]').length>0"),'current location with real SNAP response',90000);
-  check(await evaluate("!document.querySelector('#detected-location').hidden && document.querySelector('#snap-planning-location').textContent.length>0"),'Device location shows resolved confirmation using real reverse lookup');
-  // Use the real address endpoint and store lookup. This is a public test address.
+  await until(()=>evaluate("!document.querySelector('#location-button').disabled && !!NutriCartLocation.get() && document.querySelectorAll('[name=snap_store]').length>0"),'coordinate-only device search',90000);
+  check(await evaluate("!document.querySelector('#detected-location').hidden && document.querySelector('#snap-planning-location').textContent==='Current location' && JSON.stringify(NutriCartLocation.get())===JSON.stringify({locality:'Current location',region:''}) && document.querySelector('#address').value===''"),'GPS displays a neutral location without inventing or autofilling an address');
+  check(!locationRequests.some(url=>/nominatim|reverse-geocode/i.test(url)),'GPS sends no reverse-geocoding request');
+  await click('[name=snap_store]');await click('#snap-build-basket');
+  check(await evaluate("NutriCartWorkflow.get().locationReady && NutriCartWorkflow.get().storeReady && !document.querySelector('#planner-form').hidden"),'Coordinate-only GPS plus explicit store selection unlocks planning');
+  await evaluate("(async()=>{const context={budget:100,people:2,days:7,diet:'vegan',calories:2000,protein:50,fiber_mode:'recommended',preference:'balanced',nutrition_focus:'none',foods_to_avoid:[],location:NutriCartLocation.get(),selected_store:NutriCartStore.get()};const response=await fetch('/api/grocery-plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(context)});if(response.status!==200)throw Error('GPS plan fixture failed');const result=await response.json();window.__gps87eSaved={context,result};document.dispatchEvent(new CustomEvent('nutricart:open-saved-plan',{detail:{data:window.__gps87eSaved,updated_at:'2026-01-01T00:00:00Z'}}));})()");
+  await until(()=>evaluate("!document.querySelector('#plan-results').hidden && window.currentPlan?.context.location.locality==='Current location'"),'restored GPS planning context');
+  check(await evaluate("window.currentPlan.context.location.locality==='Current location' && !JSON.stringify(window.__gps87eSaved).includes('latitude') && !JSON.stringify(window.__gps87eSaved).includes('longitude') && !document.querySelector('#receipt-context').textContent.includes('Current location')"),'GPS saved-plan restoration preserves the neutral label without coordinate history or a fabricated locality');
+  await click('#snap-tab');
+  await fill({address:'142 W Fifth Ave, Anchorage, AK 99501'});await click('#address-button');await until(()=>evaluate("!document.querySelector('#address-button').disabled"),'GPS to manual search');
+  check(await evaluate("NutriCartLocation.get().locality==='Anchorage' && NutriCartLocation.get().region==='AK' && !NutriCartStore.get() && !NutriCartWorkflow.get().basketReady"),'GPS to manual replaces the neutral context with verified locality and clears stale plan/store state');
+  await click('[name=snap_store]');await click('#location-button');await until(()=>evaluate("!document.querySelector('#location-button').disabled"),'manual to GPS search');
+  check(await evaluate("NutriCartLocation.get().locality==='Current location' && NutriCartLocation.get().region==='' && document.querySelector('#address').value==='' && !NutriCartStore.get()"),'Manual to GPS clears the previous address and retailer without inferring locality');
+  // Exercise browser error callbacks and malformed success results without waiting
+  // for a real GPS timeout or sending any external request.
+  await evaluate("window.__gps87eOriginal=navigator.geolocation.getCurrentPosition.bind(navigator.geolocation)");
+  for(const [name,position,errorCode] of [['unavailable',null,2],['timeout',null,3],['missing',{},0],['missing-coordinate',{coords:{latitude:61}},0],['out-of-range',{coords:{latitude:91,longitude:-149}},0]]) {
+    const before=locationRequests.filter(url=>url.includes('/api/snap-retailers')).length;
+    await evaluate(`navigator.geolocation.getCurrentPosition=(success,failure)=>${errorCode?`failure({code:${errorCode}})`:`success(${JSON.stringify(position)})`}`);
+    await click('#location-button');
+    check(await evaluate(`!NutriCartLocation.get() && !NutriCartStore.get() && document.querySelector('#detected-location').hidden && !document.querySelector('#location-button').disabled && document.querySelector('#status').textContent.includes(${JSON.stringify(name==='timeout'?'timed out':'could not be determined')})`),'GPS '+name+' clears success and displays a usable error');
+    check(locationRequests.filter(url=>url.includes('/api/snap-retailers')).length===before,'GPS '+name+' does not submit missing or invalid coordinates');
+  }
+  await evaluate("navigator.geolocation.getCurrentPosition=window.__gps87eOriginal");
+  await evaluate("window.__gps87eFetch=window.fetch;window.fetch=(url,options)=>url==='/api/snap-retailers'?Promise.resolve(new Response(JSON.stringify({retailers:[]}),{status:200})):window.__gps87eFetch(url,options)");
+  await click('#location-button');await until(()=>evaluate("!document.querySelector('#location-button').disabled"),'GPS empty result');
+  check(await evaluate("document.querySelector('#snap-planning-location').textContent==='Current location' && document.querySelector('#status').textContent.includes('No SNAP-authorized retailers found') && !NutriCartStore.get() && !document.querySelector('#snap-build-basket')"),'Valid GPS with no nearby retailers remains truthful and offers no automatic continuation');
+  await evaluate("window.fetch=window.__gps87eFetch;delete window.__gps87eFetch;delete window.__gps87eSaved;delete window.__gps87eOriginal");
+  // Exercise real Flask/Census/USDA adapters with deterministic provider records.
   await fill({address:'142 W Fifth Ave, Anchorage, AK 99501'});await click('#address-button');
-  await until(()=>evaluate("document.querySelectorAll('[name=snap_store]').length>0 && !document.querySelector('#address-button').disabled"),'real SNAP results',90000);
-  check(await evaluate("document.querySelectorAll('.store-card').length>1 && document.querySelectorAll('.store-card').length===document.querySelectorAll('[name=snap_store]').length"),'Real USDA results each have a radio control');
+  await until(()=>evaluate("document.querySelectorAll('[name=snap_store]').length>0 && !document.querySelector('#address-button').disabled"),'offline SNAP adapter results',90000);
+  check(await evaluate("document.querySelectorAll('.store-card').length>1 && document.querySelectorAll('.store-card').length===document.querySelectorAll('[name=snap_store]').length"),'Offline USDA records pass the real API and each render a radio control');
   check(await evaluate("!document.querySelector('#snap-build-basket') && !NutriCartStore.get() && !document.querySelector('#snap-plan-transition')"),'No planning button or bottom panel before store selection');
   await click('#planner-tab');check(await evaluate("document.querySelector('#planner-form').hidden && !document.querySelector('#planner-location-gate').hidden && NutriCartWorkflow.get().locationReady && !NutriCartWorkflow.get().storeReady"),'Location alone keeps planner locked until a store is selected');await click('#snap-tab');
   await click('.store-card p');
@@ -535,6 +601,43 @@ try {
   await evaluate("document.querySelectorAll('input[name=diet]').forEach(input=>{input.checked=false})");await click('#review-settings');
   check(await evaluate("document.activeElement.name==='diet' && document.querySelector('#diet-validation').textContent==='Choose a dietary preference.'"),'Missing Diet focuses the radio group and shows its inline message');
   await click('input[name=diet][value=omnivore]');
+  async function verifyPlanDetails() {
+    check(await evaluate("document.querySelector('#plan-details-help').textContent==='Your budget should cover everyone for the selected number of days.' && !document.querySelector('#budget-feasibility,#people-feasibility,#days-feasibility,.feasibility-guidance')"),'Plan Details replaces all three estimates with one concise helper');
+    check(await evaluate("['budget','people','days'].every(id=>{const n=document.getElementById(id);return n.labels.length===1&&n.required&&n.getAttribute('aria-required')==='true'&&n.getAttribute('aria-errormessage')===id+'-validation'&&n.getAttribute('aria-describedby').split(' ').every(key=>document.getElementById(key))})&&document.querySelector('#feasibility-status').getAttribute('aria-live')==='polite'"),'Plan Details preserves associated labels required semantics and live validation descriptions');
+    await evaluate("window.__details85Fetch=window.fetch;window.__details85Responses=[];window.fetch=async(input,options)=>{const response=await window.__details85Fetch(input,options);if(input==='/api/grocery-feasibility'&&response.ok)window.__details85Responses.push({input:JSON.parse(options.body),data:await response.clone().json()});return response;}");
+    const calculation=(budget,people,days)=>until(()=>evaluate(`window.__details85Responses.findLast(row=>row.input.budget===${budget}&&row.input.people===${people}&&row.input.days===${days})`),'real Plan Details feasibility '+budget+'/'+people+'/'+days,60000);
+    await fill({budget:'100.17',people:'2',days:'7'});
+    const valid=await calculation(100.17,2,7);
+    check(valid.data.status==='potentially_feasible'&&await evaluate("!document.querySelector('#feasibility-status').textContent&&!document.querySelector('#review-plan').disabled&&!document.querySelector('.essentials-panel').textContent.includes('Estimated')"),'Valid decimal budget keeps estimates and warnings out of the form while real feasibility still runs');
+    await fill({budget:'10.17'});const low=await calculation(10.17,2,7);
+    const expected=`Your budget may be too low for 2 people over 7 days. Estimated minimum: $${low.data.guidance.budget.toFixed(2)}. Try increasing your budget or reducing the number of days.`;
+    check(low.data.status==='clearly_infeasible'&&await evaluate(`document.querySelector('#feasibility-status').textContent===${JSON.stringify(expected)}&&document.querySelector('#review-plan').disabled`),'Insufficient budget shows the real calculated minimum and contextual household warning');
+    await fill({budget:'100.18'});
+    check(await evaluate("!document.querySelector('#feasibility-status').textContent"),'Editing budget immediately removes stale feasibility warnings');
+    await calculation(100.18,2,7);
+    check(await evaluate("!document.querySelector('#feasibility-status').textContent&&!document.querySelector('#review-plan').disabled"),'Corrected feasible budget clears the warning and enables generation');
+    await fill({budget:'100.19',people:'3',days:'8'});const changed=await calculation(100.19,3,8);
+    check(changed.data.guidance.budget>valid.data.guidance.budget&&await evaluate("document.querySelector('#people').max==='20'&&document.querySelector('#days').max==='31'&&!document.querySelector('#feasibility-status').textContent"),'Changing household and duration recalculates the real minimum without changing supported limits or showing valid-input estimates');
+    for(const [value,message] of [['9.99','Budget must be at least $10.'],['-1','Budget must be at least $10.'],['','Enter your grocery budget.'],['not-a-number','Enter your grocery budget.']]){
+      await fill({budget:value});await click('#review-settings');
+      check(await evaluate(`document.querySelector('#budget-validation').textContent===${JSON.stringify(message)}&&document.querySelector('#budget').getAttribute('aria-invalid')==='true'&&document.activeElement.id==='budget'`),'Invalid budget '+JSON.stringify(value)+' retains visible announced validation and focus');
+      await fill({budget:'100.19'});
+      check(await evaluate("document.querySelector('#budget-validation').hidden&&!document.querySelector('#budget-validation').textContent"),'Correcting budget '+JSON.stringify(value)+' clears inline validation immediately');
+    }
+    await evaluate("window.__details85RealFetch=window.fetch;window.fetch=(input,options)=>input==='/api/grocery-feasibility'?Promise.resolve(new Response(JSON.stringify({status:'clearly_infeasible',message:'A complete plan is not available with the current food options.',guidance:{budget:null,people:null,days:null}}),{status:200,headers:{'Content-Type':'application/json'}})):window.__details85RealFetch(input,options)");
+    await fill({budget:'100.21'});await until(()=>evaluate("document.querySelector('#review-plan').disabled&&document.querySelector('#feasibility-status').textContent==='A complete plan is not available with the current food options.'"),'catalog-limit warning preserved');
+    check(await evaluate("!document.querySelector('#feasibility-status').textContent.includes('Estimated minimum')"),'Missing minimum preserves an honest catalog-limit error instead of inventing a price');
+    await evaluate("window.fetch=window.__details85Fetch;delete window.__details85Fetch;delete window.__details85RealFetch");
+    await fill({budget:'100.22',people:'2',days:'7'});await until(()=>evaluate("!document.querySelector('#review-plan').disabled&&!document.querySelector('#feasibility-status').textContent"),'real feasibility restored',60000);
+    for(const width of [1440,390,320])for(const size of ['normal','large','extra-large']){
+      await cdp('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:width<500});await evaluate(`NutriCartSettings.setSetting('textSize',${JSON.stringify(size)});document.querySelector('.essentials-panel').scrollIntoView({block:'center',behavior:'instant'})`);await delay(160);
+      check(await evaluate("(()=>{const panel=document.querySelector('.essentials-panel'),r=panel.getBoundingClientRect();return document.documentElement.scrollWidth<=innerWidth+1&&panel.scrollWidth<=panel.clientWidth+1&&['budget','people','days','plan-details-help'].every(id=>{const b=document.getElementById(id).getBoundingClientRect();return b.width>0&&b.left>=r.left&&b.right<=r.right})})()"),'Compact Plan Details fits '+width+' '+size);
+      if(size==='normal'){const shot=await cdp('Page.captureScreenshot',{format:'png'});await writeFile(path.join(artifacts,'plan-details-'+width+'.png'),Buffer.from(shot.data,'base64'));}
+    }
+    await cdp('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});await evaluate("NutriCartSettings.setSetting('textSize','normal');document.querySelector('#budget').focus()");
+    for(const id of ['people','days']){await cdp('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});await cdp('Input.dispatchKeyEvent',{type:'keyUp',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});check(await evaluate(`document.activeElement.id===${JSON.stringify(id)}`),'Keyboard order still reaches '+id);}
+  }
+  await verifyPlanDetails();
   async function generate(diet,budget,people=3,days=1){
     await fill({budget:String(budget),people:String(people),days:String(days),calories:'2000',protein:'50'});
     await click(`input[name=diet][value=${diet}]`);
@@ -548,6 +651,53 @@ try {
   }
   // Same real resolved location and nutrition settings for both diets.
   await generate('vegan',500.45);check(await evaluate("window.currentPlan.result.groceries.every(p=>p.product_id.startsWith('demo-')) && document.querySelector('#grocery-list').textContent.length>0"),'Independent demo products only');check(await evaluate("document.querySelector('#receipt-price-source').textContent.includes('Example grocery prices') && document.querySelector('.basket-availability-note').textContent==='Illustrative grocery selections and prices. Availability at the selected store has not been verified.'"),'Synthetic price and product availability disclosure');await layout('#planner-view','vegan-basket');
+  check(await evaluate("[...document.querySelectorAll('.grocery-item')].every(card=>{const item=window.currentPlan.result.groceries.find(row=>row.product_name===card.querySelector('.grocery-item-name').textContent),display=NutriCartQuantities.describe(item);return card.querySelector('.grocery-item-amount').textContent===display.primary && card.querySelector('.grocery-item-meta').textContent.includes(display.secondary)&&card.querySelector('.grocery-item-meta').textContent.includes('per model unit')&&!card.querySelector('.grocery-item-meta').textContent.includes('per package')})"),'Basket leads with total required mass and labels model arithmetic truthfully');
+  await evaluate("window.__copy88Before=JSON.stringify(window.currentPlan);window.__copy88Original=navigator.clipboard.writeText.bind(navigator.clipboard);navigator.clipboard.writeText=async text=>{window.__copy88Text=text}");await click('#copy-grocery-plan');
+  check(await evaluate("document.querySelector('#copy-plan-status').textContent==='Grocery plan copied to clipboard.' && window.__copy88Text.includes('Total Cost: $'+window.currentPlan.result.total_cost.toFixed(2)) && window.currentPlan.result.groceries.every(item=>window.__copy88Text.includes(NutriCartQuantities.describe(item).primary)&&window.__copy88Text.includes(NutriCartQuantities.describe(item).secondary)) && JSON.stringify(window.currentPlan)===window.__copy88Before"),'Copy Plan includes shopping amounts, model units and exact prices without changing the basket');
+  await evaluate("navigator.clipboard.writeText=window.__copy88Original;delete window.__copy88Original;delete window.__copy88Before;delete window.__copy88Text");
+  async function verifyComparisonWording() {
+    await evaluate("document.querySelector('.other-plan-actions').open=true");await click('#compare-from-plan');
+    const expected="Store-specific prices aren't available yet. Your grocery plan uses estimated prices, which may differ from actual store prices.";
+    check(await evaluate(`!document.querySelector('#basket-comparison').hidden&&document.querySelector('#comparison-availability').textContent===${JSON.stringify(expected)}&&!document.querySelector('#comparison-availability').hidden&&document.querySelector('#compare-basket-prices').hidden&&document.querySelector('#compare-basket-prices').getClientRects().length===0&&document.querySelector('#comparison-error').getClientRects().length===0`),'Unavailable comparison shows the exact explanation without a disabled control or its layout space');
+    for(const width of [1440,390,320])for(const size of ['normal','extra-large']){
+      await cdp('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:width<500});await evaluate(`NutriCartSettings.setSetting('textSize',${JSON.stringify(size)});document.querySelector('#basket-comparison').scrollIntoView({block:'center',behavior:'instant'})`);await delay(140);
+      check(await evaluate("(()=>{const p=document.querySelector('#basket-comparison'),n=document.querySelector('#comparison-availability'),r=n.getBoundingClientRect();return !n.hidden&&r.width>0&&r.height>0&&n.scrollWidth<=n.clientWidth+1&&p.scrollWidth<=p.clientWidth+1&&document.documentElement.scrollWidth<=innerWidth+1&&!document.querySelector('#compare-basket-prices').getClientRects().length})()"),'Comparison explanation is readable without overflow at '+width+' '+size);
+      if(size==='normal'){const shot=await cdp('Page.captureScreenshot',{format:'png'});await writeFile(path.join(artifacts,'comparison-'+width+'.png'),Buffer.from(shot.data,'base64'));}
+    }
+    await cdp('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});await evaluate("NutriCartSettings.setSetting('textSize','normal')");
+    // A local controller fixture tests the retained enabled control, not real store prices.
+    await evaluate("window.__comparison87Clicks=0;window.__comparison87Handler=()=>window.__comparison87Clicks++;document.querySelector('#compare-basket-prices').addEventListener('click',window.__comparison87Handler);document.querySelector('#compare-basket-prices').disabled=false");
+    await until(()=>evaluate("!document.querySelector('#compare-basket-prices').hidden&&document.querySelector('#comparison-availability').hidden"),'enabled comparison availability reflected');
+    await evaluate("document.querySelector('#compare-basket-prices').focus()");await cdp('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13,text:'\r'});await cdp('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
+    check(await evaluate("window.__comparison87Clicks===1&&document.activeElement.id==='compare-basket-prices'"),'An enabled comparison retains its existing click listener and keyboard operation');
+    await evaluate("document.querySelector('#compare-basket-prices').disabled=true");await until(()=>evaluate("document.querySelector('#compare-basket-prices').hidden&&!document.querySelector('#comparison-availability').hidden"),'unavailable state restored');
+    check(await evaluate(`document.querySelector('#comparison-availability').textContent===${JSON.stringify(expected)}&&window.__comparison87Clicks===1`),'Returning to unavailable comparison restores the explanation without submitting another request');
+    await evaluate("document.querySelector('#compare-basket-prices').removeEventListener('click',window.__comparison87Handler);delete window.__comparison87Handler;delete window.__comparison87Clicks");
+  }
+  await verifyComparisonWording();
+  // Exercise the actual local API when exclusions leave no distinct alternative.
+  const alternative87aCatalog = JSON.parse(await readFile(path.join(root,'data','demo','food_catalog.json'),'utf8'));
+  await evaluate(`(async()=>{window.__alternative87aPrevious=structuredClone(window.currentPlan);const payload={budget:100,people:2,days:7,diet:'vegan',calories:2000,protein:50,fiber_mode:'recommended',preference:'balanced',nutrition_focus:'none',foods_to_avoid:[],location:NutriCartLocation.get()};const post=body=>fetch('/api/grocery-plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const initial=await post(payload);if(initial.status!==200)throw new Error('Alternative fixture initial generation failed');const first=await initial.json(),ids=new Set(first.groceries.map(p=>p.product_id));payload.foods_to_avoid=${JSON.stringify(alternative87aCatalog)}.filter(p=>!ids.has(p.product_id)).map(p=>p.food_profile.replaceAll('_',' '));const limited=await post(payload);if(limited.status!==200)throw new Error('Alternative fixture narrowed generation failed');const result=await limited.json();document.dispatchEvent(new CustomEvent('nutricart:open-saved-plan',{detail:{data:{context:{...window.currentPlan.context,...payload},result},updated_at:'2026-01-01T00:00:00Z'}}));window.__alternative87aBefore=JSON.stringify(window.currentPlan);window.__alternative87aFetch=window.fetch;window.__alternative87aStatus=0;window.fetch=async(input,options)=>{const response=await window.__alternative87aFetch(input,options);if(String(input)==='/api/grocery-plan/alternative')window.__alternative87aStatus=response.status;return response;};})()`);
+  await click('#alternative-plan');
+  await until(()=>evaluate("window.__alternative87aStatus===422 && document.querySelector('#grocery-plan-loader').hidden && !document.querySelector('#alternative-plan').disabled"),'honest unavailable alternative',120000);
+  check(await evaluate(`document.querySelector('#plan-error').textContent==="We couldn't find a sufficiently different alternative with these settings. Your current plan is unchanged." && document.querySelector('#plan-error').getAttribute('role')==='alert'`),'No distinct alternative returns real HTTP 422 and an accessible explanation');
+  check(await evaluate("JSON.stringify(window.currentPlan)===window.__alternative87aBefore && NutriCartWorkflow.get().basketReady && !document.querySelector('#plan-results').hidden && document.activeElement.id==='alternative-plan'"),'Failed alternative preserves the exact basket, workflow unlock, and keyboard focus');
+  for(const width of [1440,390,320]) {
+    await cdp('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:width<=390});
+    await evaluate("document.querySelector('#plan-error').scrollIntoView({block:'center',behavior:'instant'})");await delay(200);
+    check(await evaluate("(()=>{const r=document.querySelector('#plan-error').getBoundingClientRect();return r.width>0&&r.left>=0&&r.right<=innerWidth+1&&document.documentElement.scrollWidth<=innerWidth+1})()"),'Honest alternative explanation fits at '+width);
+  }
+  // Corrupt only test requests, then exercise the real route and normal error UI.
+  for(const mode of ['unknown-id','bad-quantity']) {
+    await evaluate(`window.__alternative87aStatus=0;window.fetch=async(input,options)=>{if(String(input)==='/api/grocery-plan/alternative'){const payload=JSON.parse(options.body);window.__alternative87dSent=structuredClone(payload);if(${JSON.stringify(mode)}==='unknown-id'){payload.excluded_product_ids=['not-a-demo-food'];payload.groceries=[{product_id:'not-a-demo-food',quantity:1}];}else{payload.groceries[0].quantity=0;}options={...options,body:JSON.stringify(payload)};}const response=await window.__alternative87aFetch(input,options);if(String(input)==='/api/grocery-plan/alternative')window.__alternative87aStatus=response.status;return response;}`);
+    await evaluate("document.querySelector('#alternative-plan').scrollIntoView({block:'center',behavior:'instant'});document.querySelector('#alternative-plan').focus()");
+    await cdp('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13,text:'\r'});await cdp('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
+    await until(()=>evaluate("window.__alternative87aStatus===400 && document.querySelector('#grocery-plan-loader').hidden && !document.querySelector('#alternative-plan').disabled"),'malformed alternative '+mode,120000);
+    check(await evaluate("JSON.stringify(window.currentPlan)===window.__alternative87aBefore && NutriCartWorkflow.get().basketReady && !document.querySelector('#plan-results').hidden && document.activeElement.id==='alternative-plan' && document.querySelector('#plan-error').getAttribute('role')==='alert' && !!document.querySelector('#plan-error').textContent"),'Real HTTP 400 '+mode+' preserves the original basket, visible result, accessible error and keyboard focus');
+    check(await evaluate("window.__alternative87dSent.groceries.every(row=>typeof row.product_id==='string'&&Number.isInteger(row.quantity)&&row.quantity>0)&&window.__alternative87dSent.groceries.length===window.__alternative87dSent.excluded_product_ids.length"),'Browser supplies actual reference product IDs and quantities for '+mode);
+  }
+  await evaluate("window.fetch=window.__alternative87aFetch;document.dispatchEvent(new CustomEvent('nutricart:open-saved-plan',{detail:{data:window.__alternative87aPrevious,updated_at:'2026-01-01T00:00:00Z'}}));delete window.__alternative87aPrevious;delete window.__alternative87aBefore;delete window.__alternative87aFetch;delete window.__alternative87aStatus");
+  await cdp('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
   await click('#edit-plan');check(await evaluate("!document.querySelector('#planner-form').hidden && document.querySelector('#budget').value==='500.45'"),'Edit retains original form inputs');
   await click('#snap-tab');
   await click('#planner-tab');
@@ -587,7 +737,12 @@ try {
   const mealReadyMetrics=await evaluate("(()=>{const c=document.querySelector('#meal-plan-ready').getBoundingClientRect(),b=document.querySelector('#create-meal-plan').getBoundingClientRect();document.querySelector('#create-meal-plan').focus();return {width:c.width,height:c.height,buttonHeight:b.height,focused:document.activeElement.id}})()");
   check(mealReadyMetrics.width<=761 && mealReadyMetrics.height<330 && mealReadyMetrics.buttonHeight>=52 && mealReadyMetrics.focused==='create-meal-plan','Unlocked Meal Plan card is compact and keyboard ready '+JSON.stringify(mealReadyMetrics));
   await click('#planner-tab');
+  await evaluate("window.__alternative87dOriginal=structuredClone(window.currentPlan);window.__alternative87dFetch=window.fetch;window.__alternative87dStatus=0;window.fetch=async(input,options)=>{if(String(input)==='/api/grocery-plan/alternative')window.__alternative87dSent=JSON.parse(options.body);const response=await window.__alternative87dFetch(input,options);if(String(input)==='/api/grocery-plan/alternative')window.__alternative87dStatus=response.status;return response;}");
   await click('#alternative-plan');await until(()=>evaluate("document.querySelector('#grocery-plan-loader').hidden && !document.querySelector('#alternative-plan').disabled"),'alternative complete',120000);
+  check(await evaluate("(()=>{const before=window.__alternative87dOriginal.result.groceries,result=window.currentPlan.result,after=new Set(result.groceries.map(row=>row.product_id)),removed=before.filter(row=>!after.has(row.product_id)).length,required=Math.min(Math.max(2,Math.ceil(before.length*.25)),before.length);return window.__alternative87dStatus===200 && removed>=required && result.alternative_required_changes===required && result.alternative_requested_changes===required && result.alternative_difference_count===removed && JSON.stringify(window.__alternative87dSent.groceries)===JSON.stringify(before.map(row=>({product_id:row.product_id,quantity:row.quantity}))) && document.querySelector('#plan-error').textContent==='' && document.querySelector('#solver-status').textContent==='This alternative is now your current plan.' && document.querySelector('#solver-status').getAttribute('role')==='status'})()"),'Real successful alternative meets the actual diversity threshold with truthful counts, reference quantities and accessible success status');
+  await evaluate("document.querySelector('#edit-plan').focus()");await cdp('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});await cdp('Input.dispatchKeyEvent',{type:'keyUp',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});
+  check(await evaluate("document.activeElement.id==='alternative-plan' && !document.activeElement.disabled && !document.querySelector('#plan-results').hidden"),'Successful alternative keeps result actions keyboard reachable in the existing tab order');
+  await evaluate("window.fetch=window.__alternative87dFetch;delete window.__alternative87dFetch;delete window.__alternative87dOriginal;delete window.__alternative87dStatus;delete window.__alternative87dSent");
   check(await evaluate("!document.querySelector('#plan-results').hidden && document.querySelector('#plan-results-title').textContent==='Your Grocery Basket' && document.querySelector('#planner-essentials').getClientRects().length===0"),'Alternative keeps single result heading');
   await progressState('planner',['snap']);
   check(await evaluate("document.querySelector('#start-shopping-from-plan').textContent==='Continue to Shopping Budget' && document.querySelector('#next-actions-title').textContent==='Your grocery plan is ready.'"),'Grocery Plan points to Shopping Budget');
@@ -736,6 +891,8 @@ try {
   }
   await cdp('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
   check(await evaluate("[...document.querySelectorAll('.shopping-list-quantity')].every(n=>n.textContent.includes('\\u00b7') && !n.textContent.includes(' ? '))"),'Shopping separator renders correctly');
+  check(await evaluate("[...document.querySelectorAll('.shopping-list-row')].every(row=>{const item=window.currentPlan.result.groceries.find(item=>item.product_name===row.querySelector('.shopping-list-name').textContent),display=NutriCartQuantities.describe(item);return row.querySelector('.shopping-list-quantity').textContent.startsWith(display.primary)&&row.querySelector('.shopping-list-model').textContent===display.secondary})"),'Shopping checklist uses the same total mass and retains original model units');
+
   check(await evaluate("!document.querySelector('#additional-purchases').open && document.querySelector('#shopping-list-title').textContent==='Your Shopping List'"),'List is primary; manual purchases collapsed below');
   const state=async()=>{const value=await evaluate("new Promise(resolve=>{document.addEventListener('nutricart:budget-state',e=>resolve(e.detail),{once:true});document.dispatchEvent(new Event('nutricart:request-budget-state'))})");await evaluate("if(!document.querySelector('#save-dialog').hidden) document.querySelector('#save-cancel').click()");return value;};
   const before=await state();check(before.purchases.length===0,'Displaying a basket does not spend');
@@ -832,7 +989,7 @@ try {
   await verifyNewTripFlow(JSON.parse(planBeforeCompletion),await evaluate('window.generatedMealPlan'));
   if (!externalUrl) {
     const stopped=once(server,'exit');server.kill();await Promise.race([stopped,delay(5000)]);
-    server=spawn(pythonPath,["-B","-m","flask","--app","app","run","--host","127.0.0.1","--port",String(port),"--no-reload"],{
+    server=spawn(pythonPath,["-B","-c",locationFixtureServer,String(port)],{
       cwd:root,windowsHide:true,
       env:{...process.env,NUTRICART_CATALOG_MODE:"demo",FLASK_DEBUG:"0",PYTHONDONTWRITEBYTECODE:"1",PYTHON_DOTENV_DISABLED:"1",FLASK_SKIP_DOTENV:"1",NUTRICART_FEEDBACK_TO:"",SUPABASE_URL:"https://project.supabase.co",SUPABASE_ANON_KEY:"publishable-test-key"},
       stdio:["ignore","pipe","pipe"],
@@ -933,6 +1090,7 @@ try {
     check(await evaluate("JSON.stringify([...document.querySelectorAll('#account-menu [role=menuitem]')].map(item=>item.textContent.trim()))===JSON.stringify(['My Plans','My Shopping Sessions','Account Settings','Sign Out'])"),'Signed-in account menu contains only account destinations and Sign Out');
     await click('#account-button');
 
+    await verifyHeaderAlignment(true);
     const restoredPlan=JSON.stringify(JSON.parse(planBeforeCompletion));
     await evaluate(`(()=>{const restored=${restoredPlan};restored.context.diet='omnivore';restored.result.planning_settings={...(restored.result.planning_settings||{}),diet:'omnivore'};window.__task73RestoredPlan=restored;document.dispatchEvent(new CustomEvent('nutricart:open-saved-plan',{detail:{data:restored,updated_at:'2026-01-01T00:00:00Z'}}))})()`);await delay(400);
     check(await evaluate("NutriCartWorkflow.get().basketReady && document.querySelector('#receipt-context').textContent.includes('Non-Vegetarian')"),'Old omnivore saved plan restores with Non-Vegetarian display');
@@ -963,6 +1121,7 @@ try {
       check(resetLayout.hint==='Use 10+ characters, including letters and numbers.'&&resetLayout.label==='Strong'&&resetLayout.score>=78&&resetLayout.fits&&!resetLayout.overflow,'Reset Password meter remains responsive at '+width+' '+JSON.stringify(resetLayout));
     }
   }
+  check(!locationRequests.some(url=>/nominatim|reverse-geocode/i.test(url)),'Entire guest and account UAT sends no reverse-geocoding request');
   check(assets.length>0 && assets.every(a=>a.status===200),'All static assets load');
   await writeFile(path.join(artifacts,'results.json'),JSON.stringify({checks,layouts,browserErrors},null,2));
   check(browserErrors.length===0,'Zero console errors');

@@ -84,7 +84,7 @@ class VercelDemoTests(unittest.TestCase):
         self.assertIn(".settings-icon { display: block; flex: 0 0 20px; width: 20px; height: 20px; }", styles)
         self.assertIn('<div class="app-settings-utility">', page)
         self.assertNotIn('document.querySelector(".app-settings-utility").hidden', (ROOT / "static" / "account.js").read_text(encoding="utf-8"))
-        self.assertIn("styles.css?v=trip-reset-83", page)
+        self.assertIn("styles.css?v=shop-amounts-88", page)
 
     def test_shared_brand_logo_is_the_approved_smart_grocery_basket(self):
         logo = (ROOT / "templates" / "nutricart-logo.svg").read_text(encoding="utf-8").strip()
@@ -116,6 +116,39 @@ class VercelDemoTests(unittest.TestCase):
             self.assertIn("<strong>NutriCart</strong>", rendered)
         self.assertIn("templates/nutricart-logo.svg", (ROOT / "RELEASE_MANIFEST.txt").read_text(encoding="utf-8"))
 
+    def test_retired_official_snap_logo_is_not_published_or_served(self):
+        name = "images/usda-snap-logo.png"
+        self.assertNotIn(name, ASSETS)
+        self.assertFalse((ROOT / "static" / name).exists())
+        self.assertNotIn("static/" + name, (ROOT / "RELEASE_MANIFEST.txt").read_text(encoding="utf-8").splitlines())
+        for route in ("/static/" + name, "/static/" + name + "?v=old", "/public/static/" + name,
+                      "/instance/retired-logo.png"):
+            with self.subTest(route=route):
+                self.assertEqual(self.client.get(route).status_code, 404)
+        page = self.client.get("/").text
+        self.assertNotIn("usda-snap-logo.png", page)
+        self.assertIn("NutriCart is independent and is not endorsed by USDA.", page)
+        self.assertEqual(self.client.get("/favicon.svg").mimetype, "image/svg+xml")
+
+    def test_asset_build_removes_only_the_retired_cached_logo(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            for name in ASSETS:
+                target = root / "static" / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes((ROOT / "static" / name).read_bytes())
+            retired = root / "public" / "static" / "images" / "usda-snap-logo.png"
+            retired.parent.mkdir(parents=True, exist_ok=True)
+            retired.write_bytes(b"obsolete cached logo fixture")
+            unrelated = retired.parent / "keep.txt"
+            unrelated.write_text("Keep unrelated build output.", encoding="utf-8")
+            build_assets(root)
+            self.assertFalse(retired.exists())
+            self.assertEqual(unrelated.read_text(encoding="utf-8"), "Keep unrelated build output.")
+            for name in ASSETS:
+                self.assertEqual((root / "public" / "static" / name).read_bytes(),
+                                 (root / "static" / name).read_bytes())
+
     def test_shared_favicon_preserves_reset_page_security_and_revalidates(self):
         reset = self.client.get("/reset-password")
         self.assertEqual(reset.headers["Content-Security-Policy"],
@@ -133,8 +166,57 @@ class VercelDemoTests(unittest.TestCase):
         self.assertIn("NutriCart supports plans for 1–31 days.", script)
         self.assertNotIn("People must be a whole number from 1 to 20.", script)
         self.assertNotIn("Days must be a whole number from 1 to 31.", script)
-        self.assertIn('filename=\'grocery.js\', v=\'trip-reset-83\'', (ROOT / "templates" / "index.html").read_text(encoding="utf-8"))
-        self.assertIn("grocery.js?v=trip-reset-83", page)
+        self.assertIn('filename=\'grocery.js\', v=\'shop-amounts-88\'', (ROOT / "templates" / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("grocery.js?v=shop-amounts-88", page)
+
+    def test_plan_details_has_one_shared_hint_and_accessible_contextual_errors(self):
+        page = self.client.get("/").text
+        self.assertEqual(page.count("Your budget should cover everyone for the selected number of days."), 1)
+        for field in ("budget", "people", "days"):
+            self.assertNotIn(f'id="{field}-feasibility"', page)
+            self.assertIn(f'aria-describedby="plan-details-help {field}-validation feasibility-status"', page)
+            self.assertIn(f'aria-errormessage="{field}-validation" aria-required="true" required', page)
+        self.assertIn('id="feasibility-status" class="feasibility-status" role="status" aria-live="polite"', page)
+        self.assertNotIn("Estimated feasible range:", page)
+
+    def test_plan_details_keeps_real_feasibility_calculations_and_limits(self):
+        values = {"budget": 100, "people": 2, "days": 7, "diet": "vegan"}
+        high = self.client.post("/api/grocery-feasibility", json=values)
+        low = self.client.post("/api/grocery-feasibility", json={**values, "budget": 10})
+        self.assertEqual(high.status_code, 200)
+        self.assertEqual(low.status_code, 200)
+        self.assertEqual(high.json["status"], "potentially_feasible")
+        self.assertEqual(low.json["status"], "clearly_infeasible")
+        self.assertEqual(high.json["guidance"]["budget"], low.json["guidance"]["budget"])
+        self.assertGreater(low.json["guidance"]["budget"], 10)
+        self.assertLessEqual(high.json["guidance"]["people"], 20)
+        self.assertLessEqual(high.json["guidance"]["days"], 31)
+
+    def test_unavailable_comparison_has_readable_explanation_and_no_disabled_control(self):
+        page = self.client.get("/").text
+        self.assertIn("Store-specific prices aren't available yet. Your grocery plan uses estimated prices, which may differ from actual store prices.", page)
+        self.assertIn('id="compare-basket-prices" class="primary" type="button" disabled hidden', page)
+        self.assertIn('id="comparison-availability" class="help"', page)
+        self.assertIn("#comparison-error:empty { display: none; }", (ROOT / "static/styles.css").read_text(encoding="utf-8"))
+        self.assertIn("price_comparison.js?v=comparison-copy-87", page)
+        self.assertNotIn("Store price comparison is unavailable for example groceries.", page)
+
+    def test_available_comparison_route_retains_existing_calculation_with_mock_observations(self):
+        from basket_comparison import compare_basket_prices
+        stores = [{"location_id": "fixture-a", "store_name": "Synthetic store A"},
+                  {"location_id": "fixture-b", "store_name": "Synthetic store B"}]
+        groceries = [{"product_id": "synthetic-upc", "quantity": 2}]
+        def compare(items, selected, _token, reference_location_id=None):
+            def observation(upc, location_id):
+                return {"upc": upc, "product_id": upc, "product_name": "Synthetic comparison fixture",
+                        "package_size": "200 g", "effective_price": 2 if location_id == "fixture-a" else 3,
+                        "regular_price": 2 if location_id == "fixture-a" else 3, "location_id": location_id}
+            return compare_basket_prices(items, selected, observation, reference_location_id)
+        with patch("app.demo_catalog_enabled", return_value=False), patch("app._get_kroger_access_token", return_value="synthetic-test-only"), patch("app.compare_kroger_basket_prices", side_effect=compare):
+            response = self.client.post("/api/basket-price-comparison", json={"groceries": groceries, "stores": stores})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([item["observed_basket_total"] for item in response.json["stores"]], [4, 6])
+        self.assertTrue(all(item["complete"] for item in response.json["stores"]))
 
     def test_omnivore_value_is_displayed_as_non_vegetarian_everywhere(self):
         page = self.client.get("/").text
@@ -346,7 +428,7 @@ class VercelDemoTests(unittest.TestCase):
         self.assertIn("width: min(100%, 760px)", styles)
         self.assertIn("#meal-plan-ready .primary", styles)
         self.assertNotIn("min-height: 330px", styles.split("/* Compact unlocked Meal Plan action state. */", 1)[1])
-        self.assertIn("styles.css?v=trip-reset-83", page)
+        self.assertIn("styles.css?v=shop-amounts-88", page)
 
     def test_feedback_modal_has_optional_two_stage_actions(self):
         page = self.client.get("/").text
@@ -587,3 +669,183 @@ print('DEMO_STARTUP_OK')
         self.assertIn('planner: hasCurrentBasket()', state)
         self.assertIn('snap: hasPlanningLocation() && hasPlanningStore()', state)
         self.assertIn('step.setAttribute("aria-label"', state)
+
+
+class CoordinateLocationTests(unittest.TestCase):
+    """GPS needs USDA coordinates only; manual addresses use Census, offline."""
+
+    def setUp(self):
+        import snap_store_locator
+        self.locator = snap_store_locator
+        config = patch.dict(app.app.config, TESTING=True, ACCOUNTS_ENABLED=False)
+        config.start()
+        self.addCleanup(config.stop)
+        network = patch("urllib.request.urlopen", side_effect=AssertionError("Unexpected external request"))
+        network.start()
+        self.addCleanup(network.stop)
+        self.client = app.app.test_client()
+
+    def features(self):
+        return {"features": [{"attributes": {
+            "Record_ID": "near", "Store_Name": "Fixture Grocery", "Store_Type": "Supermarket",
+            "Store_Street_Address": "Public fixture", "City": "Fixture", "State": "NC",
+            "Latitude": 35.001, "Longitude": -80,
+        }}, {"attributes": {
+            "Record_ID": "far", "Store_Name": "Far fixture", "Store_Type": "Supermarket",
+            "Latitude": 40, "Longitude": -80,
+        }}], "exceededTransferLimit": False}
+
+    def test_coordinates_search_the_actual_route_without_reverse_lookup(self):
+        with patch.object(self.locator, "request_json", return_value=self.features()) as upstream:
+            response = self.client.post("/api/snap-retailers", json={"latitude": 35, "longitude": -80, "radius_miles": 5})
+        self.assertEqual(response.status_code, 200)
+        stores = response.json["retailers"]
+        self.assertEqual([row["record_id"] for row in stores], ["near"])
+        self.assertEqual(stores[0]["planning_suitability"]["category"], "full")
+        self.assertAlmostEqual(stores[0]["distance_miles"], 0.0690934189853509, places=10)
+        self.assertEqual(upstream.call_args.args[0], self.locator.SNAP_QUERY_URL)
+        self.assertEqual(upstream.call_args.args[1]["geometry"], "-80.0,35.0")
+
+    def test_no_retailers_is_an_honest_empty_result(self):
+        with patch.object(self.locator, "request_json", return_value={"features": [], "exceededTransferLimit": False}):
+            response = self.client.post("/api/snap-retailers", json={"latitude": 35, "longitude": -80, "radius_miles": 5})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["retailers"], [])
+
+    def test_missing_invalid_and_out_of_range_coordinates_fail_before_upstream(self):
+        with patch.object(self.locator, "request_json", side_effect=AssertionError("Invalid coordinates reached upstream")):
+            for payload in ({}, {"latitude": 35}, {"longitude": -80},
+                            {"latitude": None, "longitude": -80},
+                            {"latitude": "invalid", "longitude": -80},
+                            {"latitude": 91, "longitude": -80},
+                            {"latitude": 35, "longitude": -181}):
+                with self.subTest(payload=payload):
+                    self.assertEqual(self.client.post("/api/snap-retailers", json=payload).status_code, 400)
+
+    def test_distance_arithmetic_is_unchanged(self):
+        self.assertEqual(self.locator.haversine_miles(35, -80, 35, -80), 0)
+        self.assertAlmostEqual(self.locator.haversine_miles(0, 0, 0, 1), 69.093418985531, places=8)
+        self.assertEqual(self.locator.haversine_miles(35, -80, 36, -81),
+                         self.locator.haversine_miles(36, -81, 35, -80))
+
+    def test_manual_address_keeps_census_verified_locality(self):
+        provider = {"result": {"addressMatches": [{"matchedAddress": "10 Public Street, Concord, NC, 28027",
+                    "coordinates": {"x": -80.72, "y": 35.35}}]}}
+        with patch.object(self.locator, "request_json", return_value=provider) as upstream:
+            response = self.client.post("/api/geocode", json={"address": "10 Public Street, Concord, NC 28027"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["planning_location"], {"locality": "Concord", "region": "NC"})
+        self.assertEqual((response.json["latitude"], response.json["longitude"]), (35.35, -80.72))
+        self.assertEqual(upstream.call_args.args[0], self.locator.CENSUS_GEOCODER_URL)
+
+    def test_retired_reverse_endpoint_never_contacts_a_provider(self):
+        with patch.object(self.locator, "request_json", side_effect=AssertionError("Retired endpoint reached provider")):
+            self.assertEqual(self.client.post("/api/reverse-geocode", json={"latitude": 35, "longitude": -80}).status_code, 404)
+        self.assertFalse(hasattr(self.locator, "reverse_geocode_coordinates"))
+        self.assertFalse(hasattr(self.locator, "NOMINATIM_REVERSE_URL"))
+
+    def test_runtime_has_no_reverse_geocoding_dependency(self):
+        for filename in ("app.py", "snap_store_locator.py", "static/app.js", "templates/index.html"):
+            text = (ROOT / filename).read_text(encoding="utf-8").lower()
+            self.assertNotIn("nominatim", text, filename)
+            self.assertNotIn("/api/reverse-geocode", text, filename)
+        page = self.client.get("/").text
+        self.assertIn("app.js?v=gps-location-87e", page)
+        self.assertIn("Use My Current Location", page)
+        self.assertIn("NutriCart is independent and is not endorsed by USDA.", page)
+
+    def test_neutral_context_preserves_existing_planner_and_saved_data_contract(self):
+        from planning_catalog import planning_location
+        from account_store import AccountStore
+        context = {"locality": "Current location", "region": ""}
+        self.assertEqual(planning_location(context), context)
+        safe = {"context": {"location": context}}
+        self.assertFalse(AccountStore._contains_forbidden(safe))
+        for key in ("latitude", "longitude", "coordinates", "address"):
+            self.assertTrue(AccountStore._contains_forbidden({"context": {"location": {**context, key: "private"}}}))
+        payload = dict(budget=100, people=2, days=7, diet="vegan", calories=2000,
+                       protein=50, fiber_mode="recommended", preference="balanced", foods_to_avoid=[], location=context)
+        response = self.client.post("/api/grocery-plan", json=payload)
+        self.assertEqual(response.status_code, 200, response.json)
+        self.assertEqual(response.json["planning_context"]["location"], context)
+        self.assertTrue(response.json["acceptance"]["accepted"])
+
+    def test_geolocation_retains_explicit_permission_and_safe_error_paths(self):
+        script = (ROOT / "static/app.js").read_text(encoding="utf-8")
+        self.assertIn('locationButton.addEventListener("click"', script)
+        self.assertIn('navigator.geolocation.getCurrentPosition', script)
+        for message in ("Location permission was not granted.", "Your current location could not be determined.",
+                        "Location lookup timed out.", "You can enter an address instead."):
+            self.assertIn(message, script)
+        self.assertIn('Number.isFinite(latitude)', script)
+        self.assertIn('Number.isFinite(longitude)', script)
+        self.assertNotIn('localStorage', script)
+        self.assertNotIn('sessionStorage', script)
+
+
+class ShoppingQuantityDisplayTests(unittest.TestCase):
+    def node(self, code):
+        bootstrap = "global.window={};require('./static/quantity_display.js');const describe=window.NutriCartQuantities.describe;const assert=require('node:assert/strict');"
+        result = subprocess.run(["node", "-e", bootstrap + code], cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_model_unit_multiplication_and_familiar_mass_labels(self):
+        self.node(r"""
+          const cases=[[250,6,1500,'Need about 3.3 lb (1.5 kg)'],[300,6,1800,'Need about 4 lb (1.8 kg)'],[400,6,2400,'Need about 5.3 lb (2.4 kg)'],[100,10,1000,'Need about 2.2 lb (1 kg)'],[250,4,1000,'Need about 2.2 lb (1 kg)'],[250,1,250,'Need about 8.8 oz (250 g)'],[300,1,300,'Need about 10.6 oz (300 g)'],[400,1,400,'Need about 14.1 oz (400 g)'],[100,1,100,'Need about 3.5 oz (100 g)']];
+          for(const [unit,quantity,total,expected] of cases){const value=describe({package_weight_g:unit,package_size:unit+' g',quantity});assert.equal(value.totalGrams,total);assert.equal(value.primary,expected);assert.equal(value.secondary,`Model units: ${quantity} \u00d7 ${unit} g`);}
+        """)
+
+    def test_exact_standard_conversion_and_rounding_bounds(self):
+        self.node(r"""
+          assert.equal(describe({package_weight_g:28.349523125,quantity:1}).primary,'Need about 1 oz (28.35 g)');
+          assert.equal(describe({package_weight_g:453.59237,quantity:1}).primary,'Need about 1 lb (453.592 g)');
+          for(const unit of [100,250,300,400])for(let quantity=1;quantity<=20;quantity++){const value=describe({package_weight_g:unit,quantity});const match=value.primary.match(/about ([\d.]+) (oz|lb)/);assert(match);const approximate=Number(match[1]),exact=value.totalGrams/(match[2]==='lb'?453.59237:28.349523125);assert(Math.abs(approximate-exact)<=.050000001);assert(!value.primary.includes('.0 '));}
+        """)
+
+    def test_mass_only_liquids_never_become_fluid_volumes_or_retail_packages(self):
+        self.node(r"""
+          for(const name of ['Olive oil','Milk','Soy beverage']){const result=describe({product_name:name,quantity:10,package_weight_g:100,package_size:'100 g'});assert.equal(result.primary,'Need about 2.2 lb (1 kg)');assert(!/fl\s*oz|ml|lit(?:er|re)|bottle|bag|package/i.test(result.primary+result.secondary));}
+        """)
+
+    def test_legacy_mass_text_and_unknown_units_fail_truthfully(self):
+        self.node(r"""
+          assert.equal(describe({quantity:6,packageSize:'250 g'}).totalGrams,1500);
+          assert.equal(describe({quantity:2,package_size:'1 kg'}).totalGrams,2000);
+          assert.equal(describe({quantity:2,package_size:'16 oz'}).totalGrams,907.18474);
+          assert.equal(describe({quantity:2,package_size:'1 lb'}).totalGrams,907.18474);
+          for(const size of ['16 fl oz','400 ml','6 count','unknown','']){const result=describe({quantity:2,package_size:size});assert.equal(result.primary,'Quantity: 2');assert.equal(result.totalGrams,null);}
+          assert.equal(describe({quantity:0,package_weight_g:250}).primary,'Quantity unavailable');
+          assert.equal(describe({quantity:Infinity,package_weight_g:250}).totalGrams,null);
+        """)
+
+    def test_formatter_never_mutates_basket_or_shopping_data(self):
+        self.node(r"""
+          for(const item of [{product_id:'demo-tofu',quantity:4,package_weight_g:250,package_size:'250 g',unit_price:1.5,item_total:6},{productId:'demo-tofu',quantity:4,packageWeightG:250,packageSize:'250 g',estimatedCents:600,checked:true}]){const before=JSON.stringify(item);Object.freeze(item);assert.equal(describe(item).totalGrams,1000);assert.equal(JSON.stringify(item),before);}
+        """)
+
+    def test_shared_formatter_is_packaged_served_and_loaded_before_consumers(self):
+        page = app.app.test_client().get('/').text
+        self.assertIn('quantity_display.js', ASSETS)
+        self.assertIn('static/quantity_display.js', (ROOT / 'RELEASE_MANIFEST.txt').read_text())
+        self.assertLess(page.index('quantity_display.js?'), page.index('grocery.js?'))
+        self.assertLess(page.index('quantity_display.js?'), page.index('budget_tracker.js?'))
+        with app.app.test_client().get('/static/quantity_display.js') as asset:
+            self.assertEqual(asset.status_code, 200)
+        self.assertIn('.site-header .brand { align-items: center; }', (ROOT / 'static/styles.css').read_text())
+
+    def test_original_vegan_basket_quantities_prices_and_nutrition_remain_exact(self):
+        payload = dict(budget=200, people=2, days=14, diet='vegan', nutrition_focus='none', calories=2000,
+                       protein=50, fiber_mode='recommended', preference='balanced', foods_to_avoid=[],
+                       location={'locality':'Concord','region':'NC'})
+        response = app.app.test_client().post('/api/grocery-plan', json=payload)
+        self.assertEqual(response.status_code, 200, response.json)
+        result = response.json
+        self.assertEqual([(p['product_id'],p['quantity']) for p in result['groceries']], [
+            ('demo-apple',1),('demo-banana',6),('demo-potato',6),('demo-sweet_potato',2),('demo-oats',6),
+            ('demo-brown_rice',6),('demo-white_rice',6),('demo-pasta',6),('demo-lentils',6),
+            ('demo-chickpeas',6),('demo-tofu',3),('demo-peanuts',10),('demo-olive_oil',10)])
+        self.assertEqual(result['total_cost'],79.5)
+        self.assertEqual(result['remaining_budget'],120.5)
+        self.assertEqual(result['nutrition_per_person_per_day'], {'calories_kcal':1901.5,'protein_g':64.2,
+            'fiber_g':30.27,'carbohydrates_g':270.65,'fat_g':66.48,'sodium_mg':50.0})
+        self.assertTrue(result['acceptance']['accepted'])

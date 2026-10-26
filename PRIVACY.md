@@ -6,7 +6,7 @@ When Supabase accounts are configured, Supabase Auth processes the account email
 
 Settings are stored only after Remember my settings is enabled. Stored preferences do not contain baskets, purchases, addresses, or coordinates.
 
-Device location is requested only after Use My Current Location and browser permission. Users may instead submit an address. Flask sends submitted addresses to Census Geocoder and search coordinates to USDA's SNAP retailer service. Device-location reverse lookup may send coordinates to OpenStreetMap/Nominatim for address autofill. Failure does not block coordinate search. The application does not intentionally save addresses, coordinates, or retailer results. Hosts and upstream services may retain operational logs under their own policies; this is not a promise that no infrastructure logs exist.
+Device location is requested only after Use My Current Location and browser permission. Users may instead submit an address. Flask sends submitted addresses to Census Geocoder and search coordinates to USDA's SNAP retailer service. No device-location reverse lookup is performed. GPS searches display "Current location" without an inferred address; saved-plan context can retain that neutral label, but not device coordinates. The application does not intentionally save addresses, coordinates, or retailer results. Hosts and upstream services may retain operational logs under their own policies; this is not a promise that no infrastructure logs exist.
 
 Planner requests use coarse locality/region context, which does not verify inventory. Prices are synthetic examples, not personal data or retailer observations. Store price comparison is unavailable.
 

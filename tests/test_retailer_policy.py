@@ -77,6 +77,14 @@ class RetailerPolicyTests(unittest.TestCase):
                 with self.subTest(store_type=store_type):
                     self.assertEqual(planning_suitability(store_type.lower())["category"], key)
 
+    def test_full_suitability_display_label_preserves_category_and_selection_rules(self):
+        for store_type in ("SM", "SS", "LG", "MG", "Supermarket", "Grocery Store"):
+            result = planning_suitability(store_type)
+            self.assertEqual(result, {"category": "full", "label": "Suitable for grocery planning"})
+            self.assertTrue(planning_allowed({"store_type": store_type}))
+        self.assertEqual(planning_suitability("CS")["category"], "limited")
+        self.assertEqual(planning_suitability("BB")["category"], "specialty")
+
     def test_unknown_types_are_not_guessed_from_business_name(self):
         for value in (None, "", "Not listed", "Made-up", "Internet Retailer", "Military Commissary"):
             self.assertEqual(planning_suitability(value)["category"], "unknown")

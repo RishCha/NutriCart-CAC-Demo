@@ -6,7 +6,6 @@
   const addressInput = document.querySelector("#address");
   const addressButton = document.querySelector("#address-button");
   const detectedLocation = document.querySelector("#detected-location");
-  const detectedLocationNote = document.querySelector("#detected-location-note");
   const radiusPresets = [...document.querySelectorAll(".radius-preset")];
   const customRadiusInput = document.querySelector("#custom-radius");
   const applyRadiusButton = document.querySelector("#apply-radius");
@@ -63,23 +62,18 @@
   let activeSearchController = null;
   let searchRequestId = 0;
   let planningLocation = null;
-  let addressRevision = 0;
-  let locationWarning = "";
   window.NutriCartLocation = {get: () => planningLocation ? {...planningLocation} : null};
-  addressInput.addEventListener("input", () => { addressRevision += 1; });
 
-  function publishLocation(location, fromDevice = false) {
+  function publishLocation(location) {
     planningLocation = location ? {...location} : null;
     const label = [location?.locality, location?.region].filter(Boolean).join(", ");
     document.querySelector("#snap-planning-location").textContent = label;
     detectedLocation.hidden = !label;
-    detectedLocationNote.hidden = !label || !fromDevice;
     updatePlanningTransition();
     document.dispatchEvent(new CustomEvent("nutricart:location-changed", {detail: {location: planningLocation}}));
   }
 
   function beginLocationChange() {
-    locationWarning = "";
     currentLocation = null;
     publishStore(null);
     planningLocation = null;
@@ -371,7 +365,6 @@
       status.textContent = retailers.length
         ? `${retailers.length} SNAP-authorized retailer${retailers.length === 1 ? "" : "s"} found within ${formatRadius(radiusForSearch)} miles.`
         : `No SNAP-authorized retailers found within ${formatRadius(radiusForSearch)} miles. Try a wider search distance.`;
-      if (locationWarning) status.textContent += ` ${locationWarning}`;
       showNextPage();
       return status.textContent;
     } catch (error) {
@@ -391,25 +384,6 @@
       .catch(error => { status.textContent = error.message; });
   }
 
-  function requestApproximateAddress(latitude, longitude, requestId) {
-    const revision = addressRevision;
-    postJson("/api/reverse-geocode", {latitude, longitude})
-      .then(match => {
-        if (requestId !== locationRequestId) return;
-        if (!match.matched_address || !match.planning_location) throw new Error("Unresolved location");
-        if (match.matched_address) {
-          if (addressRevision === revision) addressInput.value = match.matched_address;
-          publishLocation(match.planning_location, true);
-        }
-      })
-      .catch(() => {
-        if (requestId === locationRequestId) {
-          locationWarning = "Your location name could not be resolved. Please enter an address.";
-          status.textContent = locationWarning;
-        }
-      });
-  }
-
   locationButton.addEventListener("click", () => {
     if (searchInProgress) return;
     status.textContent = "Getting your location...";
@@ -426,10 +400,18 @@
     navigator.geolocation.getCurrentPosition(
       position => {
         if (requestId !== locationRequestId) return;
-        const latitude = position.coords.latitude;
-        const longitude = position.coords.longitude;
+        const latitude = position?.coords?.latitude;
+        const longitude = position?.coords?.longitude;
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)
+            || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+          status.textContent = "Your current location could not be determined. You can enter an address instead.";
+          setSearchLoading(false);
+          return;
+        }
         currentLocation = {latitude, longitude};
-        requestApproximateAddress(latitude, longitude, requestId);
+        // Keep coordinates only in temporary search state. This is a neutral
+        // display marker in the existing coarse context, not a resolved locality.
+        publishLocation({locality: "Current location", region: ""});
         search(latitude, longitude, selectedRadius)
           .catch(error => { status.textContent = error.message; });
       },

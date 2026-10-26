@@ -180,7 +180,7 @@ class DemoCatalogTests(unittest.TestCase):
         with patch('app.demo_catalog_enabled', return_value=True), patch('app._get_kroger_access_token', side_effect=AssertionError('Retailer called')):
             response = app.app.test_client().post('/api/basket-price-comparison', json={})
             self.assertEqual(response.status_code, 503)
-            self.assertIn('example groceries', response.json['error'])
+            self.assertEqual(response.json['error'], "Store-specific prices aren't available yet. Your grocery plan uses estimated prices, which may differ from actual store prices.")
 
     def test_original_case_lower_budgets_locations_and_alternative(self):
         with patch.object(optimize_grocery, 'CATALOG_FILE', DEMO / 'food_catalog.json'), patch.dict(app.app.config, TESTING=True, ACCOUNTS_ENABLED=False):
@@ -217,3 +217,420 @@ class DemoCatalogTests(unittest.TestCase):
             self.assertEqual(rejected.status_code,422)
             self.assertTrue(rejected.json['error'])
             self.assertNotIn('groceries',rejected.json)
+
+
+def dietary_audit_scenarios():
+    """A bounded, deterministic covering matrix; not a full Cartesian product."""
+    diets = ("vegan", "vegetarian", "pescatarian", "omnivore")
+    base = dict(calories=2000, protein=50, fiber_mode="recommended", preference="balanced",
+                foods_to_avoid=[], nutrition_focus="none", location={"locality": "Cox Mill", "region": "NC"})
+    cases = []
+    def add(**values):
+        payload = {**base, **values}
+        if payload not in cases:
+            cases.append(payload)
+    for diet in diets:
+        for budget in (30, 50, 70, 100, 150, 200):
+            for people, days in ((1, 3), (2, 7), (4, 14), (6, 21)):
+                add(diet=diet, budget=budget, people=people, days=days)
+        for budget, people, days in ((200, 2, 14), (70, 1, 7), (150, 4, 7)):
+            add(diet=diet, budget=budget, people=people, days=days)
+        for focus in ("lower_fat", "high_protein", "high_fiber", "lower_sodium"):
+            add(diet=diet, budget=100, people=2, days=7, nutrition_focus=focus)
+        for exclusion in ("dairy", "eggs", "seafood", "nuts", "gluten"):
+            add(diet=diet, budget=100, people=2, days=7, food_group_exclusions=[exclusion])
+        for preference in ("budget", "nutrition", "variety"):
+            add(diet=diet, budget=100, people=2, days=7, preference=preference)
+        add(diet=diet, budget=10, people=20, days=31)
+        add(diet=diet, budget=100, people=2, days=7, foods_to_avoid=["tofu", "peanuts"])
+    add(diet="vegetarian", budget=100, people=1, days=14)
+    add(diet="pescatarian", budget=100, people=2, days=7, include_fish=True)
+    add(diet="pescatarian", budget=30, people=1, days=3, include_fish=True)
+    add(diet="omnivore", budget=100, people=2, days=7, foods_to_avoid=["tofu", "lentils", "beans", "chickpeas", "soy"])
+    add(diet="omnivore", budget=100, people=2, days=7, protein=150)
+    add(diet="omnivore", budget=100.45, people=2, days=7)
+    return cases
+
+
+class DietaryBasketAuditTests(unittest.TestCase):
+    def setUp(self):
+        self.config = patch.dict(app.app.config, TESTING=True, ACCOUNTS_ENABLED=False)
+        self.config.start()
+        self.addCleanup(self.config.stop)
+        self.client = app.app.test_client()
+        self.catalog = json.loads((DEMO / "food_catalog.json").read_text())
+        self.by_id = {row["product_id"]: row for row in self.catalog}
+        self.usda = {row["fdc_id"]: row for row in json.loads((DEMO / "usda_source_records.json").read_text())["records"]}
+
+    def check_response(self, payload, response):
+        """Independently check arithmetic and source evidence, including failed plans."""
+        import math
+        from decimal import Decimal
+        from plan_feasibility import minimum_feasible_cost, plan_acceptance
+        data = response.json
+        self.assertIn(response.status_code, (200, 422), data)
+        values, _, _ = app._planning_values(payload)
+        eligible, _ = optimize_grocery.filter_catalog(self.catalog, payload["diet"], values["avoid"], values["food_group_exclusions"])
+        if response.status_code == 422:
+            self.assertTrue(data.get("error"))
+            self.assertEqual(data.get("feasibility_status"), "clearly_infeasible")
+            self.assertNotIn("groceries", data)
+            minimum = minimum_feasible_cost(eligible, values)
+            if minimum is not None and minimum <= payload["budget"] + 0.005:
+                plan = optimize_grocery.solve_plan(eligible, values)
+                summary = optimize_grocery.summarize_plan(plan, values)
+                score = optimize_grocery.score_plan(summary, plan["targets"], plan["groceries"])
+                self.assertFalse(plan_acceptance(plan, summary, score)["accepted"], data)
+            return
+        items = data["groceries"]
+        self.assertTrue(items)
+        self.assertEqual(len(items), len({row["product_id"] for row in items}))
+        self.assertEqual(data["planning_settings"]["diet"], payload["diet"])
+        self.assertEqual(data["planning_settings"]["nutrition_focus"], payload["nutrition_focus"])
+        self.assertEqual(data["planning_context"]["people"], payload["people"])
+        self.assertEqual(data["planning_context"]["days"], payload["days"])
+        self.assertEqual(data["eligible_product_count"], len(eligible))
+        animal = {"chicken_breast", "salmon", "eggs", "milk_2_percent", "plain_yogurt"}
+        forbidden = {"vegan": animal, "vegetarian": {"chicken_breast", "salmon"},
+                     "pescatarian": {"chicken_breast"}, "omnivore": set()}[payload["diet"]]
+        excluded_profiles = {"dairy": {"milk_2_percent", "plain_yogurt"}, "eggs": {"eggs"},
+                             "seafood": {"salmon"}, "nuts": {"peanuts", "peanut_butter"}, "gluten": {"pasta"}}
+        total = Decimal("0")
+        nutrients = {name: 0.0 for name in optimize_grocery.NUTRIENTS}
+        profiles = []
+        for item in items:
+            row = self.by_id[item["product_id"]]
+            self.assertEqual(item["product_name"], row["product_name"])
+            self.assertEqual(item["category"], row["food_category"])
+            self.assertTrue(item["category"])
+            self.assertEqual(item["package_weight_g"], row["package_weight_g"])
+            self.assertTrue(row["price_is_synthetic"])
+            self.assertFalse(row["local_availability_verified"])
+            self.assertEqual(row["nutrition_license"], "CC0-1.0")
+            self.assertIsNone(item["store_name"])
+            self.assertNotIn(row["food_profile"], forbidden)
+            self.assertNotIn(payload["diet"], row["excluded_diets"])
+            profiles.append(row["food_profile"])
+            for exclusion in payload.get("food_group_exclusions", []):
+                self.assertNotIn(row["food_profile"], excluded_profiles[exclusion])
+            for avoided in payload.get("foods_to_avoid", []):
+                self.assertNotIn(avoided, item["product_name"].lower())
+            q = item["quantity"]
+            self.assertIs(type(q), int)
+            self.assertGreater(q, 0)
+            self.assertLessEqual(q, optimize_grocery.package_upper_bound(row, payload["people"], payload["days"]))
+            price = Decimal(str(row["effective_price"]))
+            self.assertEqual(Decimal(str(item["unit_price"])), price)
+            self.assertEqual(Decimal(str(item["item_total"])), price * q)
+            total += price * q
+            source = self.usda[row["fdc_id"]]
+            for nutrient in nutrients:
+                nutrients[nutrient] += source.get(nutrient, 0) * row["package_weight_g"] / 100 * q
+        self.assertEqual(len(profiles), len(set(profiles)))
+        self.assertEqual(float(total), data["total_cost"])
+        self.assertLessEqual(float(total), payload["budget"])
+        self.assertAlmostEqual(payload["budget"] - float(total), data["remaining_budget"], places=2)
+        person_days = payload["people"] * payload["days"]
+        for nutrient, total_value in nutrients.items():
+            self.assertAlmostEqual(round(total_value / person_days, 2), data["nutrition_per_person_per_day"][nutrient], places=2)
+        for nutrient, floor in (("calories_kcal", 0.95), ("protein_g", 0.80), ("fiber_g", 0.85)):
+            self.assertGreaterEqual(data["nutrition_per_person_per_day"][nutrient] + 0.005, data["nutrition_targets"][nutrient] * floor)
+        daily, targets = data["nutrition_per_person_per_day"], data["nutrition_targets"]
+        alignment = sum(max(0, 1 - abs(1 - daily[n] / target)) for n, target in targets.items()) / len(targets)
+        expected_score = round(100 * (0.75 * alignment + 0.15 * min(len(items) / 10, 1) + 0.10 * min(len({p["category"] for p in items}) / 5, 1)), 1)
+        self.assertTrue(math.isfinite(data["quality_score"]))
+        self.assertGreaterEqual(data["quality_score"], 0)
+        self.assertLessEqual(data["quality_score"], 100)
+        self.assertEqual(data["quality_score"], expected_score)
+        self.assertTrue(data["acceptance"]["accepted"])
+        if payload.get("include_fish"):
+            self.assertIn("salmon", profiles)
+
+    def test_real_api_dietary_covering_matrix(self):
+        scenarios = dietary_audit_scenarios()
+        self.assertGreaterEqual(len(scenarios), 60)
+        for payload in scenarios:
+            with self.subTest(**payload):
+                self.check_response(payload, self.client.post("/api/grocery-plan", json=payload))
+
+    def test_equal_person_days_can_legitimately_share_a_basket_without_cache_leakage(self):
+        base = dict(budget=100, calories=2000, protein=50, fiber_mode="recommended", preference="balanced", foods_to_avoid=[])
+        signatures = []
+        for diet, people, days in (("omnivore", 2, 7), ("vegetarian", 1, 14), ("vegan", 2, 7)):
+            payload = {**base, "diet": diet, "people": people, "days": days}
+            response = self.client.post("/api/grocery-plan", json=payload)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json["planning_settings"]["diet"], diet)
+            signatures.append([(p["product_id"], p["quantity"]) for p in response.json["groceries"]])
+        self.assertEqual(signatures[0], signatures[1])
+        self.assertNotEqual(signatures[0], signatures[2])
+
+    def test_excluding_whole_groups_does_not_force_their_purchase(self):
+        payload = dict(budget=100, people=2, days=7, diet="omnivore", calories=2000, protein=50,
+                       fiber_mode="recommended", preference="balanced", foods_to_avoid=[],
+                       food_group_exclusions=["dairy", "eggs", "nuts", "seafood"])
+        response = self.client.post("/api/grocery-plan", json=payload)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse({"eggs", "milk_2_percent", "plain_yogurt", "peanuts", "peanut_butter", "salmon"} &
+                         {self.by_id[x["product_id"]]["food_profile"] for x in response.json["groceries"]})
+
+    def test_invalid_planner_boundaries_return_errors_without_baskets(self):
+        base = dict(budget=100, people=2, days=7, diet="omnivore", calories=2000, protein=50,
+                    fiber_mode="recommended", preference="balanced", foods_to_avoid=[])
+        invalid = [("people", 0), ("people", 21), ("people", 2.5), ("people", None),
+                   ("days", 0), ("days", 32), ("days", 7.5), ("days", None),
+                   ("budget", 0), ("budget", 9.99), ("budget", "bad"), ("budget", None),
+                   ("calories", 499), ("protein", 301), ("diet", "unsupported"),
+                   ("nutrition_focus", "unsupported"), ("include_fish", True)]
+        for key, value in invalid:
+            with self.subTest(field=key, value=value):
+                response = self.client.post("/api/grocery-plan", json={**base, key: value})
+                self.assertEqual(response.status_code, 400)
+                self.assertTrue(response.json["error"])
+                self.assertNotIn("groceries", response.json)
+
+    def test_ambiguous_composite_foods_keep_conservative_vegan_filtering(self):
+        from planning_preferences import product_is_diet_compatible
+        plain = next(row for row in self.catalog if row["food_profile"] == "oats")
+        self.assertTrue(product_is_diet_compatible(plain, "vegan"))
+        for name in ("Cheddar flavored oatmeal packets", "Oats with milk", "Honey oatmeal bowl"):
+            with self.subTest(name=name):
+                self.assertFalse(product_is_diet_compatible({**plain, "product_name": name}, "vegan"))
+        eggs = next(row for row in self.catalog if row["food_profile"] == "eggs")
+        self.assertFalse(product_is_diet_compatible(eggs, "vegan"))
+        self.assertTrue(product_is_diet_compatible(eggs, "vegetarian"))
+
+    def test_six_sequential_alternatives_keep_diet_nutrition_and_history(self):
+        """Exercise the real solve and API across each diet, not mocked baskets."""
+        import math
+        base = dict(budget=100, people=2, days=7, calories=2000, protein=50,
+                    fiber_mode="recommended", preference="balanced", foods_to_avoid=[],
+                    nutrition_focus="none", location={"locality": "Cox Mill", "region": "NC"})
+        for diet in ("vegan", "vegetarian", "pescatarian", "omnivore"):
+            payload = {**base, "diet": diet}
+            response = self.client.post("/api/grocery-plan", json=payload)
+            self.check_response(payload, response)
+            self.assertEqual(response.status_code, 200)
+            current = response.json
+            history = []
+            for index in range(6):
+                with self.subTest(diet=diet, alternative=index + 1):
+                    previous = {row["product_id"] for row in current["groceries"]}
+                    response = self.client.post("/api/grocery-plan/alternative", json={
+                        **payload, "excluded_product_ids": sorted(previous),
+                        "groceries": [{"product_id": row["product_id"], "quantity": row["quantity"]}
+                                      for row in current["groceries"]],
+                        "previous_product_id_sets": history,
+                    })
+                    self.check_response(payload, response)
+                    self.assertEqual(response.status_code, 200, response.json)
+                    result = response.json
+                    selected = {row["product_id"] for row in result["groceries"]}
+                    minimum = max(2, math.ceil(len(previous) * 0.25))
+                    self.assertGreaterEqual(len(previous - selected), minimum)
+                    self.assertEqual(result["alternative_difference_count"], len(previous - selected))
+                    self.assertGreaterEqual(result["alternative_required_changes"], minimum)
+                    for prior in history:
+                        self.assertGreaterEqual(len(set(prior) - selected), minimum)
+                    history.append(sorted(previous))
+                    current = result
+
+    def test_no_distinct_alternative_is_reported_without_relabeling_current_basket(self):
+        payload = dict(budget=100, people=2, days=7, diet="vegan", calories=2000,
+                       protein=50, fiber_mode="recommended", preference="balanced",
+                       foods_to_avoid=[], nutrition_focus="none")
+        initial = self.client.post("/api/grocery-plan", json=payload)
+        self.assertEqual(initial.status_code, 200)
+        ids = {row["product_id"] for row in initial.json["groceries"]}
+        # Legitimate user exclusions leave only the original, feasible food set.
+        payload["foods_to_avoid"] = [row["food_profile"].replace("_", " ")
+                                     for row in self.catalog if row["product_id"] not in ids]
+        original = self.client.post("/api/grocery-plan", json=payload)
+        self.assertEqual(original.status_code, 200)
+        self.check_response(payload, original)
+        self.assertEqual({row["product_id"] for row in original.json["groceries"]}, ids)
+        response = self.client.post("/api/grocery-plan/alternative", json={
+            **payload, "excluded_product_ids": sorted(ids),
+        })
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json["error"],
+                         "We couldn't find a sufficiently different alternative with these settings. "
+                         "Your current plan is unchanged.")
+        self.assertNotIn("groceries", response.json)
+        # A failed alternative does not make the original preferences infeasible.
+        restored = self.client.post("/api/grocery-plan", json=payload)
+        self.assertEqual(restored.status_code, 200)
+        self.assertEqual(restored.json["groceries"], original.json["groceries"])
+
+class AlternativePlanApiIntegrityTests(unittest.TestCase):
+    """Route-level validation plus controlled real-solver candidate regressions."""
+
+    def setUp(self):
+        self.audit = DietaryBasketAuditTests()
+        self.audit.setUp()
+        self.addCleanup(self.audit.doCleanups)
+        self.client = self.audit.client
+        self.payload = dict(budget=100, people=2, days=7, diet="vegan", calories=2000,
+                            protein=50, fiber_mode="recommended", preference="balanced",
+                            nutrition_focus="none", foods_to_avoid=[])
+        original = self.client.post("/api/grocery-plan", json=self.payload)
+        self.assertEqual(original.status_code, 200)
+        self.original = original.json
+        self.reference = [{"product_id": row["product_id"], "quantity": row["quantity"]}
+                          for row in self.original["groceries"]]
+        self.ids = [row["product_id"] for row in self.reference]
+        self.values, _, _ = app._planning_values(self.payload)
+        self.eligible, _ = optimize_grocery.filter_catalog(self.audit.catalog, "vegan", [])
+
+    def request(self, **changes):
+        payload = {**self.payload, "excluded_product_ids": self.ids,
+                   "groceries": self.reference, **changes}
+        return self.client.post("/api/grocery-plan/alternative", json=payload)
+
+    def assert_unavailable(self, response):
+        self.assertEqual(response.status_code, 422, response.json)
+        self.assertEqual(response.json["error"],
+                         "We couldn't find a sufficiently different alternative with these settings. "
+                         "Your current plan is unchanged.")
+        self.assertNotIn("groceries", response.json)
+
+    def test_missing_empty_unknown_mixed_and_duplicate_ids_are_client_errors(self):
+        for ids in (None, [], ["not-a-demo-food"], [self.ids[0], "not-a-demo-food"],
+                    [self.ids[0], self.ids[0]], [""], [" "], [1], "not-a-list"):
+            with self.subTest(ids=ids):
+                response = self.request(excluded_product_ids=ids)
+                self.assertEqual(response.status_code, 400, response.json)
+                self.assertTrue(response.json["error"])
+                self.assertNotIn("groceries", response.json)
+        missing = self.client.post("/api/grocery-plan/alternative", json=self.payload)
+        self.assertEqual(missing.status_code, 400)
+
+    def test_bad_reference_quantities_are_client_errors(self):
+        import copy
+        maximum = optimize_grocery.package_upper_bound(self.audit.by_id[self.ids[0]], 2, 7)
+        for quantity in (0, -1, 1.5, True, "1", None, maximum + 1):
+            rows = copy.deepcopy(self.reference)
+            rows[0]["quantity"] = quantity
+            with self.subTest(quantity=quantity):
+                response = self.request(groceries=rows)
+                self.assertEqual(response.status_code, 400, response.json)
+                self.assertNotIn("groceries", response.json)
+        rows = copy.deepcopy(self.reference)
+        rows[0].pop("quantity")
+        self.assertEqual(self.request(groceries=rows).status_code, 400)
+
+    def test_reference_rows_must_match_unique_current_ids(self):
+        for rows in (None, [], "not-a-list", [self.reference[0]],
+                     [*self.reference, self.reference[0]],
+                     [{"product_id": "not-a-demo-food", "quantity": 1}]):
+            with self.subTest(rows=rows):
+                self.assertEqual(self.request(groceries=rows).status_code, 400)
+
+    def test_invalid_history_is_a_client_error(self):
+        for history in ([[]], [["not-a-demo-food"]], [[self.ids[0], self.ids[0]]],
+                        [[True]], [self.ids] * 7, "not-a-list"):
+            with self.subTest(history=history):
+                self.assertEqual(self.request(previous_product_id_sets=history).status_code, 400)
+
+    def test_id_only_contract_remains_supported(self):
+        response = self.client.post("/api/grocery-plan/alternative", json={
+            **self.payload, "excluded_product_ids": self.ids,
+        })
+        self.audit.check_response(self.payload, response)
+        self.assertEqual(response.status_code, 200)
+        self.assertGreaterEqual(len(set(self.ids) - {r["product_id"] for r in response.json["groceries"]}), 4)
+
+    def test_valid_reference_and_forged_client_counts_use_actual_server_counts(self):
+        response = self.request(alternative_required_changes=0, alternative_requested_changes=0,
+                                alternative_difference_count=999)
+        self.audit.check_response(self.payload, response)
+        self.assertEqual(response.status_code, 200, response.json)
+        difference = len(set(self.ids) - {r["product_id"] for r in response.json["groceries"]})
+        self.assertGreaterEqual(difference, 4)
+        self.assertEqual(response.json["alternative_requested_changes"], 4)
+        self.assertEqual(response.json["alternative_required_changes"], 4)
+        self.assertEqual(response.json["alternative_difference_count"], difference)
+
+    def test_reference_price_and_nutrition_claims_are_ignored(self):
+        rows = [{**row, "unit_price": 0, "item_total": 0, "food_profile": "forged",
+                 "package_calories_kcal": 999999} for row in self.reference]
+        response = self.request(groceries=rows)
+        self.audit.check_response(self.payload, response)
+        self.assertEqual(response.status_code, 200)
+
+    def test_identical_real_candidate_cannot_be_certified_by_forged_counts(self):
+        candidate = optimize_grocery.solve_plan(self.eligible, self.values)
+        candidate.update(alternative_required_changes=999, alternative_requested_changes=999,
+                         alternative_difference_count=999)
+        with patch("app.solve_plan", return_value=candidate):
+            self.assert_unavailable(self.request())
+
+    def test_quantity_only_changes_do_not_count_as_substitutions(self):
+        candidate = optimize_grocery.solve_plan(self.eligible, self.values)
+        row = candidate["groceries"][0]
+        row["quantity"] = 2 if row["quantity"] == 1 else row["quantity"] - 1
+        candidate.update(alternative_required_changes=4, alternative_requested_changes=4,
+                         alternative_difference_count=4)
+        with patch("app.solve_plan", return_value=candidate):
+            self.assert_unavailable(self.request())
+
+    def test_insufficient_real_candidate_is_rejected_regardless_of_claims(self):
+        candidate = optimize_grocery.solve_plan(self.eligible, self.values, {self.ids[0]})
+        actual = len(set(self.ids) - {row["product_id"] for row in candidate["groceries"]})
+        self.assertGreater(actual, 0)
+        self.assertLess(actual, 4)
+        candidate.update(alternative_required_changes=999, alternative_requested_changes=999,
+                         alternative_difference_count=999)
+        with patch("app.solve_plan", return_value=candidate):
+            self.assert_unavailable(self.request())
+
+    def test_valid_actual_candidate_overrides_forged_solver_metadata_and_prices(self):
+        candidate = optimize_grocery.solve_plan(self.eligible, self.values, set(self.ids))
+        candidate.update(alternative_required_changes=0, alternative_requested_changes=999,
+                         alternative_difference_count=999)
+        for row in candidate["groceries"]:
+            row.update(unit_price=0, total_cost=0, package_calories_kcal=999999)
+        with patch("app.solve_plan", return_value=candidate):
+            response = self.request()
+        self.audit.check_response(self.payload, response)
+        self.assertEqual(response.status_code, 200, response.json)
+        actual = len(set(self.ids) - {row["product_id"] for row in response.json["groceries"]})
+        self.assertEqual(response.json["alternative_difference_count"], actual)
+        self.assertEqual(response.json["alternative_required_changes"], 4)
+        self.assertEqual(response.json["alternative_requested_changes"], 4)
+
+    def test_actual_history_difference_is_checked_even_when_solver_claims_success(self):
+        candidate = optimize_grocery.solve_plan(self.eligible, self.values, set(self.ids))
+        history = [[row["product_id"] for row in candidate["groceries"]]]
+        candidate.update(alternative_required_changes=4, alternative_requested_changes=4,
+                         alternative_difference_count=4)
+        with patch("app.solve_plan", return_value=candidate):
+            self.assert_unavailable(self.request(previous_product_id_sets=history))
+
+    def test_invalid_internal_candidate_is_unavailable_not_a_client_error(self):
+        import copy
+        original = optimize_grocery.solve_plan(self.eligible, self.values, set(self.ids))
+        for quantity in (0, 1.5, True, 999):
+            candidate = copy.deepcopy(original)
+            candidate["groceries"][0]["quantity"] = quantity
+            with self.subTest(quantity=quantity), patch("app.solve_plan", return_value=candidate):
+                self.assert_unavailable(self.request())
+        for identifier in ("not-a-demo-food", "demo-eggs"):
+            candidate = copy.deepcopy(original)
+            candidate["groceries"][0]["product_id"] = identifier
+            with self.subTest(identifier=identifier), patch("app.solve_plan", return_value=candidate):
+                self.assert_unavailable(self.request())
+
+    def test_restricted_full_reference_keeps_original_on_no_alternative(self):
+        payload = {**self.payload, "foods_to_avoid": [row["food_profile"].replace("_", " ")
+                   for row in self.audit.catalog if row["product_id"] not in self.ids]}
+        original = self.client.post("/api/grocery-plan", json=payload)
+        self.assertEqual(original.status_code, 200)
+        response = self.client.post("/api/grocery-plan/alternative", json={
+            **payload, "excluded_product_ids": [r["product_id"] for r in original.json["groceries"]],
+            "groceries": [{"product_id": r["product_id"], "quantity": r["quantity"]}
+                          for r in original.json["groceries"]],
+        })
+        self.assert_unavailable(response)
+        self.assertEqual(self.client.post("/api/grocery-plan", json=payload).json["groceries"],
+                         original.json["groceries"])

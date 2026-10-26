@@ -33,6 +33,7 @@ The builder verifies the reviewed USDA archive hash and reads no local retailer
 inputs. It is a development tool, not a deployment build step.
 
 This public release always selects this directory locally and on Vercel. Missing
-files fail without fallback. Accounts/cloud saves and actual retailer price
-comparison are unavailable. SNAP authorization establishes neither example-product
-availability nor item-level eligibility.
+files fail without fallback. Guest use needs no account. Optional accounts and
+cross-device saved plans require Supabase configuration; actual retailer price
+comparison remains unavailable. SNAP authorization establishes neither
+example-product availability nor item-level eligibility.

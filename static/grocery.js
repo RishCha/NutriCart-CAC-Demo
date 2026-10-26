@@ -56,9 +56,6 @@
   const generateButton = document.querySelector("#generate-plan");
   const submitButton = document.querySelector("#review-plan");
   const feasibilityElements = {
-    budget: document.querySelector("#budget-feasibility"),
-    people: document.querySelector("#people-feasibility"),
-    days: document.querySelector("#days-feasibility"),
     status: document.querySelector("#feasibility-status"),
   };
   const GENERAL_NUTRITION_TARGETS = Object.freeze({calories: 2000, protein: 50});
@@ -349,10 +346,6 @@
   }
 
   function resetFeasibilityGuidance() {
-    feasibilityElements.budget.textContent = "Enter people, days, and diet to estimate the minimum budget.";
-    feasibilityElements.people.textContent = "Enter budget, days, and diet to estimate household capacity.";
-    feasibilityElements.days.textContent = "Enter budget, people, and diet to estimate the planning period.";
-    [feasibilityElements.budget, feasibilityElements.people, feasibilityElements.days].forEach(element => element.classList.remove("is-calculated"));
     feasibilityElements.status.textContent = "";
     feasibilityElements.status.classList.remove("is-infeasible");
     submitButton.disabled = false;
@@ -362,29 +355,16 @@
   function renderFeasibility(data, key) {
     const guidance = data.guidance || {};
     const inputs = JSON.parse(key);
-    if (Number.isFinite(guidance.budget)) {
-      feasibilityElements.budget.textContent = `Estimated minimum for this household and period: ${money(guidance.budget)}`;
-      feasibilityElements.budget.classList.add("is-calculated");
-    } else if (inputs.people !== null && inputs.days !== null) {
-      feasibilityElements.budget.textContent = "No estimated minimum is available for the current catalog and selections.";
-    }
-    if (Number.isInteger(guidance.people) && guidance.people > 0) {
-      feasibilityElements.people.textContent = `Estimated feasible range: 1–${guidance.people} people`;
-      feasibilityElements.people.classList.add("is-calculated");
-    } else if (inputs.budget !== null && inputs.days !== null) {
-      feasibilityElements.people.textContent = "No feasible household range was found for the current catalog and selections.";
-    }
-    if (Number.isInteger(guidance.days) && guidance.days > 0) {
-      feasibilityElements.days.textContent = `Estimated feasible range: 1–${guidance.days} days`;
-      feasibilityElements.days.classList.add("is-calculated");
-    } else if (inputs.budget !== null && inputs.people !== null) {
-      feasibilityElements.days.textContent = "No feasible planning period was found for the current catalog and selections.";
-    }
     const infeasible = data.status === "clearly_infeasible";
-    feasibilityElements.status.textContent = data.status === "potentially_feasible" ? "" : data.message || "";
+    let message = data.status === "potentially_feasible" ? "" : data.message || "";
+    if (infeasible && Number.isFinite(guidance.budget) && Number.isFinite(inputs.budget)
+        && inputs.budget + 0.005 < guidance.budget) {
+      message = `Your budget may be too low for ${inputs.people} ${inputs.people === 1 ? "person" : "people"} over ${inputs.days} ${inputs.days === 1 ? "day" : "days"}. Estimated minimum: ${money(guidance.budget)}. Try increasing your budget or reducing the number of days.`;
+    }
+    feasibilityElements.status.textContent = message;
     feasibilityElements.status.classList.toggle("is-infeasible", infeasible);
     submitButton.disabled = infeasible;
-    currentFeasibility = {key, ...data};
+    currentFeasibility = {key, ...data, message};
   }
 
   function scheduleFeasibility() {
@@ -536,10 +516,7 @@
   }
 
   function packageDisplay(item) {
-    const quantity = Number(item.quantity);
-    const packageSize = typeof item.package_size === "string" ? item.package_size.trim() : "";
-    if (packageSize) return `${quantity} × ${packageSize}`;
-    return `Quantity: ${quantity}`;
+    return window.NutriCartQuantities.describe(item).primary;
   }
 
   function nutritionValue(source, names) {
@@ -586,16 +563,17 @@
         const name = document.createElement("strong");
         name.className = "grocery-item-name";
         name.textContent = item.product_name || "Unnamed product";
+        const amount = document.createElement("p");
+        amount.className = "grocery-item-amount";
+        amount.textContent = packageDisplay(item);
         const details = document.createElement("p");
         details.className = "grocery-item-meta";
-        const packagePrice = typeof item.package_size === "string" && item.package_size.trim()
-          ? `${money(item.unit_price)} per package`
-          : `Unit price: ${money(item.unit_price)}`;
-        details.textContent = `${packageDisplay(item)} · ${packagePrice}`;
+        const model = window.NutriCartQuantities.describe(item).secondary;
+        details.textContent = [model, `${money(item.unit_price)} per model unit`].filter(Boolean).join(" \u00b7 ");
         const total = document.createElement("b");
         total.className = "grocery-item-total";
         total.textContent = money(item.item_total);
-        card.append(name, details, total);
+        card.append(name, amount, details, total);
         section.append(card);
       });
       container.append(section);
@@ -789,7 +767,10 @@
     });
     [...groups.entries()].sort(([a], [b]) => a.localeCompare(b)).forEach(([category, items]) => {
       lines.push(category);
-      items.forEach(item => lines.push(`- ${item.product_name || "Unnamed product"} — ${packageDisplay(item)} — ${money(item.item_total)}`));
+      items.forEach(item => {
+        const model = window.NutriCartQuantities.describe(item).secondary;
+        lines.push(`- ${item.product_name || "Unnamed product"} \u2014 ${packageDisplay(item)}${model ? `; ${model}` : ""} \u2014 ${money(item.item_total)}`);
+      });
       lines.push("");
     });
     const nutrition = currentResult.nutrition_per_person_per_day || {};
@@ -918,7 +899,8 @@
     try {
       const payload = {...reviewedInputs, location};
       if (alternative) {
-        payload.excluded_product_ids = (currentResult?.groceries || []).map(item => item.product_id).filter(Boolean);
+        payload.groceries = (currentResult?.groceries || []).map(item => ({product_id: item.product_id, quantity: item.quantity}));
+        payload.excluded_product_ids = payload.groceries.map(item => item.product_id);
         payload.previous_product_id_sets = alternativeHistory;
       }
       result = await requestJson(alternative ? "/api/grocery-plan/alternative" : "/api/grocery-plan", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload), signal: request.controller.signal});

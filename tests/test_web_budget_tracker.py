@@ -36,7 +36,7 @@ class ShoppingBudgetPageTests(unittest.TestCase):
         self.assertIn('id="purchase-store-disclosure"', self.page)
         self.assertIn("+ Add store (optional)", self.page)
         self.assertIn("Record Purchase", self.page)
-        self.assertIn("budget_tracker.js?v=trip-reset-83", self.page)
+        self.assertIn("budget_tracker.js?v=shop-amounts-88", self.page)
         self.assertNotIn('id="budget-percent"', self.page)
         self.assertNotIn('id="budget-status-copy"', self.page)
         self.assertIn('aria-label="Budget remaining"', self.page)
@@ -378,8 +378,11 @@ class ShoppingBudgetPageTests(unittest.TestCase):
 
     def test_quantity_fallback_does_not_invent_package_units(self):
         formatter = self.script.split("function packageDisplay", 1)[1].split("function shoppingRow", 1)[0]
-        self.assertIn('return `Quantity: ${quantity}`', formatter)
+        self.assertIn('window.NutriCartQuantities.describe(item).primary', formatter)
+        helper = (ROOT / "static" / "quantity_display.js").read_text(encoding="utf-8")
+        self.assertIn('primary: `Quantity: ${number(quantity, 3)}`', helper)
         self.assertNotIn('quantity === 1 ? "package" : "packages"', formatter)
+        self.assertIn('window.NutriCartQuantities.describe(item).secondary', self.script)
 
     def test_same_plan_preserves_checks_and_new_plan_replaces_list(self):
         update = self.script.split("function updateShoppingList", 1)[1].split("function updatePlannedItems", 1)[0]

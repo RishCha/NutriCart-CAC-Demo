@@ -27,6 +27,7 @@ from optimize_grocery import (
     default_fiber_target,
     filter_catalog,
     load_catalog,
+    package_upper_bound,
     parse_avoid_list,
     score_plan,
     score_plan_breakdown,
@@ -34,7 +35,7 @@ from optimize_grocery import (
     summarize_plan,
 )
 from retailer_policy import retailer_policy, planning_allowed, planning_suitability, LIMITED_MESSAGE, UNKNOWN_MESSAGE
-from snap_store_locator import find_snap_retailers, geocode_address, reverse_geocode_coordinates
+from snap_store_locator import find_snap_retailers, geocode_address
 
 
 
@@ -509,14 +510,18 @@ def _planning_values(payload: dict, require_exclusions: bool = False) -> tuple[d
     prior_product_id_sets = []
     if require_exclusions:
         exclusions = payload.get("excluded_product_ids")
-        if not isinstance(exclusions, list) or any(not isinstance(item, str) for item in exclusions):
-            raise _PlanningValidationError("Excluded product IDs must be a list of strings.")
+        if (not isinstance(exclusions, list) or not 1 <= len(exclusions) <= 20
+                or any(not isinstance(item, str) or not item.strip() or item != item.strip() for item in exclusions)
+                or len(set(exclusions)) != len(exclusions)):
+            raise _PlanningValidationError("Original basket product IDs must be a non-empty list of unique IDs (at most 20).")
         excluded_ids = set(exclusions)
         prior_sets = payload.get("previous_product_id_sets", [])
         if (
             not isinstance(prior_sets, list) or len(prior_sets) > 6
-            or any(not isinstance(item, list) or len(item) > 20 for item in prior_sets)
-            or any(not isinstance(identifier, str) for item in prior_sets for identifier in item)
+            or any(not isinstance(item, list) or not 1 <= len(item) <= 20 for item in prior_sets)
+            or any(not isinstance(identifier, str) or not identifier.strip() or identifier != identifier.strip()
+                   for item in prior_sets for identifier in item)
+            or any(len(set(item)) != len(item) for item in prior_sets)
         ):
             raise _PlanningValidationError("Previous product ID sets are invalid.")
         prior_product_id_sets = [set(item) for item in prior_sets]
@@ -530,6 +535,34 @@ def _planning_values(payload: dict, require_exclusions: bool = False) -> tuple[d
         "include_fish": include_fish,
         "location": location,
     }, excluded_ids, prior_product_id_sets
+
+
+def _alternative_profiles(identifiers: set[str], by_id: dict) -> set[str]:
+    """Resolve reference identities from the catalog, never from client claims."""
+    if not identifiers <= by_id.keys():
+        raise _PlanningValidationError("Original basket product IDs must identify foods in the current NutriCart catalog.")
+    profiles = {str(by_id[identifier].get("food_profile") or by_id[identifier].get("food_name") or identifier)
+                for identifier in identifiers}
+    if len(profiles) != len(identifiers):
+        raise _PlanningValidationError("Original basket must contain unique food selections.")
+    return profiles
+
+
+def _alternative_quantities(groceries, by_id: dict, values: dict) -> dict[str, int]:
+    """Validate the existing product_id/quantity shape; ignore price/nutrition claims."""
+    if not isinstance(groceries, list) or not 1 <= len(groceries) <= 20:
+        raise ValueError("Original basket groceries must be a non-empty list (at most 20).")
+    quantities = {}
+    for item in groceries:
+        if not isinstance(item, dict):
+            raise ValueError("Original basket groceries must contain product IDs and quantities.")
+        identifier, quantity = item.get("product_id"), item.get("quantity")
+        if not isinstance(identifier, str) or identifier not in by_id or identifier in quantities:
+            raise ValueError("Original basket groceries must contain unique, current catalog product IDs.")
+        if type(quantity) is not int or not 1 <= quantity <= package_upper_bound(by_id[identifier], values["people"], values["days"]):
+            raise ValueError("Original basket quantities must be positive whole numbers within the plan's package limits.")
+        quantities[identifier] = quantity
+    return quantities
 
 
 def _feasibility_values(payload: dict) -> dict | None:
@@ -632,6 +665,23 @@ def _grocery_plan_result(payload: dict, alternative: bool = False) -> dict:
     eligible, _removed = filter_catalog(
         planning_candidates(catalog), values["diet"], values["avoid"], values["food_group_exclusions"]
     )
+    reference = None
+    if alternative:
+        by_id = {str(row.get("product_id") or row.get("catalog_id")): row for row in catalog}
+        original_profiles = _alternative_profiles(excluded_ids, by_id)
+        prior_profiles = [_alternative_profiles(ids, by_id) for ids in prior_product_id_sets]
+        # ID-only callers retain their existing contract. The browser also supplies
+        # the current product_id/quantity rows, using the existing grocery schema.
+        quantities = None
+        if "groceries" in payload:
+            try:
+                quantities = _alternative_quantities(payload["groceries"], by_id, values)
+            except ValueError as error:
+                raise _PlanningValidationError(str(error)) from error
+            if quantities.keys() != excluded_ids:
+                raise _PlanningValidationError("Original basket groceries must match the supplied product IDs.")
+        required = min(max(2, math.ceil(len(original_profiles) * 0.25)), len(original_profiles))
+        reference = (by_id, original_profiles, prior_profiles, quantities, required)
     estimated_minimum = minimum_feasible_cost(eligible, values)
     if estimated_minimum is None:
         raise _PlanningFeasibilityError(
@@ -646,6 +696,32 @@ def _grocery_plan_result(payload: dict, alternative: bool = False) -> dict:
             shortfall=shortfall,
         )
     plan = solve_plan(eligible, values, excluded_ids, prior_product_id_sets)
+    if alternative:
+        by_id, original_profiles, prior_profiles, original_quantities, required = reference
+        unavailable = ("We couldn't find a sufficiently different alternative with these settings. "
+                       "Your current plan is unchanged.")
+        try:
+            candidate_quantities = _alternative_quantities(plan.get("groceries"), by_id, values)
+            candidate_profiles = _alternative_profiles(set(candidate_quantities), by_id)
+        except ValueError as error:
+            raise _PlanningFeasibilityError(unavailable) from error
+        eligible_ids = {str(row.get("product_id") or row.get("catalog_id")) for row in eligible}
+        # The documented rule counts removed food profiles, not changed package
+        # counts or a different identifier for the same food. Check every reference.
+        difference = len(original_profiles - candidate_profiles)
+        if (not candidate_quantities.keys() <= eligible_ids
+                or candidate_quantities == original_quantities
+                or difference < required
+                or any(len(profiles - candidate_profiles) < min(required, len(profiles)) for profiles in prior_profiles)):
+            raise _PlanningFeasibilityError(unavailable)
+        canonical = []
+        for identifier, quantity in candidate_quantities.items():
+            product = by_id[identifier]
+            price = float(product["effective_price"])
+            canonical.append({**product, "quantity": quantity, "unit_price": round(price, 2), "total_cost": round(price * quantity, 2)})
+        # Solver/client diversity metadata cannot certify an actual substitution.
+        plan = {**plan, "groceries": canonical, "alternative_requested_changes": required,
+                "alternative_required_changes": required, "alternative_difference_count": difference}
     response = _public_plan_response(values, catalog, eligible, plan)
     if not response["acceptance"]["accepted"]:
         app.logger.info(
@@ -1062,7 +1138,7 @@ def snap_retailers():
 @app.post("/api/basket-price-comparison")
 def basket_price_comparison():
     if demo_catalog_enabled():
-        return jsonify({"error": "Store price comparison is unavailable for example groceries."}), 503
+        return jsonify({"error": "Store-specific prices aren't available yet. Your grocery plan uses estimated prices, which may differ from actual store prices."}), 503
     try:
         payload = _json_object()
         groceries, stores, reference = _price_comparison_inputs(payload)
@@ -1102,23 +1178,6 @@ def geocode():
         return jsonify({"error": str(error)}), 400
     except RuntimeError:
         return jsonify({"error": "The address service is unavailable. Please try again later."}), 502
-
-
-@app.post("/api/reverse-geocode")
-def reverse_geocode():
-    try:
-        payload = _json_object()
-        latitude = _number(payload, "latitude", "Latitude", -90, 90)
-        longitude = _number(payload, "longitude", "Longitude", -180, 180)
-        matched_address = reverse_geocode_coordinates(latitude, longitude)
-        return jsonify({
-            "matched_address": matched_address,
-            "planning_location": location_from_address(matched_address),
-        })
-    except ValueError as error:
-        return jsonify({"error": str(error)}), 400
-    except RuntimeError:
-        return jsonify({"error": "The approximate address service is unavailable."}), 502
 
 
 if __name__ == "__main__":

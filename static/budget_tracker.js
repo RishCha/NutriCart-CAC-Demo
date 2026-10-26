@@ -246,10 +246,7 @@
   }
 
   function packageDisplay(item) {
-    const quantity = Number(item.quantity) || 1;
-    const packageSize = typeof item.packageSize === "string" ? item.packageSize.trim() : "";
-    if (packageSize) return quantity > 1 ? `${quantity} × ${packageSize}` : packageSize;
-    return `Quantity: ${quantity}`;
+    return window.NutriCartQuantities.describe(item).primary;
   }
 
   function linkedPurchase(item) {
@@ -293,7 +290,11 @@
     const amount = purchase ? purchase.costCents : item.estimatedCents;
     const price = amount === null ? "Price unavailable" : `${purchase && !purchase.estimated ? "Paid" : "Estimated"} ${formatMoney(amount)}`;
     quantity.textContent = `${packageDisplay(item)} \u00b7 ${price}`;
-    label.append(checkbox, name, quantity);
+    const model = document.createElement("span");
+    model.className = "shopping-list-model";
+    model.textContent = window.NutriCartQuantities.describe(item).secondary;
+    model.hidden = !model.textContent;
+    label.append(checkbox, name, quantity, model);
     const addPrice = document.createElement("button");
     addPrice.type = "button";
     addPrice.className = "shopping-list-add-price";
